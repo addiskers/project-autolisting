@@ -10,6 +10,7 @@ import requests
 import tempfile
 from urllib.parse import urlparse
 import time
+from datetime import datetime
 from pydantic import BaseModel
 
 # Load environment variables from .env file
@@ -19,7 +20,325 @@ load_dotenv()
 class BulkListRequest(BaseModel):
     skus: List[str]
 
-# Shopify Sync Service Class
+class ShopifyFetchRequest(BaseModel):
+    vendor: str
+
+# Shopify Fetch Service Class
+class ShopifyFetchService:
+    def __init__(self):
+        """Initialize the Shopify fetch service with environment variables"""
+        self.shopify_url = os.getenv("SHOPIFY_GRAPHQL_URL")
+        self.access_token = os.getenv("SHOPIFY_ACCESS_TOKEN")
+        
+        if not self.shopify_url or not self.access_token:
+            raise ValueError("Missing Shopify credentials in environment variables")
+            
+        self.headers = {
+            "Content-Type": "application/json",
+            "X-Shopify-Access-Token": self.access_token,
+        }
+
+        # MongoDB connection using environment variables
+        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+        self.mongo_client = pymongo.MongoClient(mongo_uri)
+
+    def fetch_shopify_products(self, cursor=None, vendor="SYDPEK"):
+        """Fetch products from Shopify GraphQL API"""
+        # Build the query with or without cursor for pagination
+        if cursor:
+            query = f"""{{
+                products(first: 250, query: "vendor:{vendor}", after: "{cursor}") {{
+                    pageInfo {{
+                        hasNextPage
+                        hasPreviousPage
+                        startCursor
+                        endCursor
+                    }}
+                    edges {{
+                        cursor
+                        node {{
+                            id
+                            title
+                            description
+                            handle
+                            status
+                            createdAt
+                            updatedAt
+                            publishedAt
+                            productType
+                            vendor
+                            tags
+                            totalInventory
+                            totalVariants
+                            onlineStoreUrl
+                            onlineStorePreviewUrl
+                            templateSuffix
+                            legacyResourceId
+                            requiresSellingPlan
+                            isGiftCard
+                            images(first: 10) {{
+                                edges {{
+                                    node {{
+                                        id
+                                        url
+                                        altText
+                                        width
+                                        height
+                                    }}
+                                }}
+                            }}
+                            variants(first: 10) {{
+                                edges {{
+                                    node {{
+                                        id
+                                        title
+                                        price
+                                        compareAtPrice
+                                        sku
+                                        barcode
+                                        taxable
+                                        availableForSale
+                                        inventoryQuantity
+                                        inventoryPolicy
+                                        image {{
+                                            id
+                                            url
+                                            altText
+                                        }}
+                                        selectedOptions {{
+                                            name
+                                            value
+                                        }}
+                                    }}
+                                }}
+                            }}
+                            options {{
+                                id
+                                name
+                                values
+                                position
+                            }}
+                            seo {{
+                                title
+                                description
+                            }}
+                            metafields(first: 10) {{
+                                edges {{
+                                    node {{
+                                        id
+                                        namespace
+                                        key
+                                        value
+                                        type
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}"""
+        else:
+            query = f"""{{
+                products(first: 250, query: "vendor:{vendor}") {{
+                    pageInfo {{
+                        hasNextPage
+                        hasPreviousPage
+                        startCursor
+                        endCursor
+                    }}
+                    edges {{
+                        cursor
+                        node {{
+                            id
+                            title
+                            description
+                            handle
+                            status
+                            createdAt
+                            updatedAt
+                            publishedAt
+                            productType
+                            vendor
+                            tags
+                            totalInventory
+                            totalVariants
+                            onlineStoreUrl
+                            onlineStorePreviewUrl
+                            templateSuffix
+                            legacyResourceId
+                            requiresSellingPlan
+                            isGiftCard
+                            images(first: 10) {{
+                                edges {{
+                                    node {{
+                                        id
+                                        url
+                                        altText
+                                        width
+                                        height
+                                    }}
+                                }}
+                            }}
+                            variants(first: 10) {{
+                                edges {{
+                                    node {{
+                                        id
+                                        title
+                                        price
+                                        compareAtPrice
+                                        sku
+                                        barcode
+                                        taxable
+                                        availableForSale
+                                        inventoryQuantity
+                                        inventoryPolicy
+                                        image {{
+                                            id
+                                            url
+                                            altText
+                                        }}
+                                        selectedOptions {{
+                                            name
+                                            value
+                                        }}
+                                    }}
+                                }}
+                            }}
+                            options {{
+                                id
+                                name
+                                values
+                                position
+                            }}
+                            seo {{
+                                title
+                                description
+                            }}
+                            metafields(first: 10) {{
+                                edges {{
+                                    node {{
+                                        id
+                                        namespace
+                                        key
+                                        value
+                                        type
+                                    }}
+                                }}
+                            }}
+                        }}
+                    }}
+                }}
+            }}"""
+
+        payload = {"query": query}
+
+        try:
+            response = requests.post(self.shopify_url, headers=self.headers, json=payload)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching data from Shopify: {e}")
+            return None
+
+    def store_products_in_mongodb(self, products_data, collection):
+        """Store individual products in MongoDB"""
+        if not products_data or "data" not in products_data:
+            print("No valid product data to store")
+            return 0
+
+        products = products_data["data"]["products"]["edges"]
+        stored_count = 0
+
+        for product_edge in products:
+            try:
+                # Get the product node (the actual product data)
+                product = product_edge["node"]
+
+                # Add metadata for tracking
+                product["_imported_at"] = datetime.now()
+                product["_source"] = "shopify_graphql"
+
+                # Insert individual product into MongoDB
+                result = collection.insert_one(product)
+                if result.inserted_id is not None:
+                    stored_count += 1
+                    print(f"Stored product: {product['title']} (ID: {product['id']})")
+
+            except Exception as e:
+                print(f"Error storing product {product.get('title', 'Unknown')}: {e}")
+                continue
+
+        return stored_count
+
+    def sync_all_shopify_products(self, vendor, website_name):
+        """Main function to sync all products from Shopify to MongoDB"""
+        # Get database and collection
+        db_name = os.getenv("MONGO_DATABASE", "phoenix_products")
+        db = self.mongo_client[db_name]
+        collection_name = f"auspek_{website_name}"
+        collection = db[collection_name]
+
+        # Delete existing collection
+        try:
+            collection.drop()
+            print(f"Dropped existing collection: {collection_name}")
+        except Exception as e:
+            print(f"Error dropping collection (may not exist): {e}")
+
+        print(f"Starting sync for vendor: {vendor} to collection: {collection_name}")
+        total_products = 0
+        cursor = None
+        page_number = 1
+
+        while True:
+            print(f"Fetching page {page_number}...")
+
+            # Fetch products from Shopify
+            response_data = self.fetch_shopify_products(cursor, vendor)
+
+            if not response_data:
+                print("Failed to fetch data from Shopify")
+                break
+
+            # Check for errors in response
+            if "errors" in response_data:
+                print(f"GraphQL errors: {response_data['errors']}")
+                break
+
+            # Store products in MongoDB
+            stored_count = self.store_products_in_mongodb(response_data, collection)
+            total_products += stored_count
+
+            # Check pagination
+            page_info = response_data["data"]["products"]["pageInfo"]
+            has_next_page = page_info.get("hasNextPage", False)
+
+            print(f"Page {page_number}: Stored {stored_count} products")
+
+            if not has_next_page:
+                print("No more pages to fetch")
+                break
+
+            # Get cursor for next page
+            cursor = page_info.get("endCursor")
+            if not cursor:
+                print("No cursor for next page")
+                break
+
+            page_number += 1
+            
+            # Add small delay to be respectful to Shopify API
+            time.sleep(0.5)
+
+        print(f"Sync completed! Total products stored: {total_products}")
+        return total_products
+
+    def close_connection(self):
+        """Close MongoDB connection"""
+        if hasattr(self, 'mongo_client'):
+            self.mongo_client.close()
+
+# Shopify Sync Service Class (existing code)
 class ShopifySyncService:
     def __init__(self):
         """Initialize the Shopify sync service with environment variables"""
@@ -553,6 +872,74 @@ async def health():
             "error": str(e)
         }
 
+# NEW ENDPOINT: Fetch all Shopify products for a vendor
+@app.post("/api/myweb/{website_name}")
+async def fetch_shopify_products_for_vendor(website_name: str, request: ShopifyFetchRequest):
+    """
+    Fetch all Shopify products for a given vendor and store in auspek_{website_name} collection
+    Deletes existing collection before fetching new data
+    """
+    try:
+        # Validate inputs
+        if not website_name or len(website_name.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Website name is required and cannot be empty"
+            )
+        
+        if not request.vendor or len(request.vendor.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Vendor name is required and cannot be empty"
+            )
+        
+        website_name = website_name.strip().lower()
+        vendor = request.vendor.strip()
+        
+        # Initialize Shopify fetch service
+        try:
+            fetch_service = ShopifyFetchService()
+        except ValueError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Shopify configuration error: {str(e)}"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to initialize Shopify fetch service: {str(e)}"
+            )
+        
+        try:
+            print(f"Starting fetch for vendor '{vendor}' to collection 'auspek_{website_name}'")
+            
+            # Fetch and store all products
+            total_products = fetch_service.sync_all_shopify_products(vendor, website_name)
+            
+            return {
+                "success": True,
+                "message": f"Successfully fetched {total_products} products from Shopify",
+                "data": {
+                    "vendor": vendor,
+                    "website_name": website_name,
+                    "collection_name": f"auspek_{website_name}",
+                    "total_products": total_products,
+                    "timestamp": datetime.now().isoformat()
+                }
+            }
+            
+        finally:
+            # Always close the connection
+            fetch_service.close_connection()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error during fetch: {str(e)}"
+        )
+
 @app.get("/api/products")
 async def get_products(
     page: int = 1,
@@ -879,4 +1266,134 @@ async def sync_product_to_shopify(sku: str):
         raise HTTPException(
             status_code=500,
             detail=f"Unexpected error during sync: {str(e)}"
+        )
+@app.get("/api/delta/{vendor}")
+async def get_delta_products(vendor: str):
+    """
+    Get products that exist in scraped collection but NOT in Shopify collection
+    This helps identify products that need to be synced to Shopify
+    """
+    try:
+        # Validate vendor
+        if not vendor or len(vendor.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Vendor parameter is required and cannot be empty"
+            )
+        
+        vendor = vendor.strip().lower()
+        
+        # Get database
+        db_name = os.getenv("MONGO_DATABASE", "phoenix_products")
+        db = client[db_name]
+        
+        # Collection names
+        scraped_collection_name = os.getenv("MONGO_COLLECTION", "products")
+        shopify_collection_name = f"auspek_{vendor}"
+        
+        scraped_collection = db[scraped_collection_name]
+        shopify_collection = db[shopify_collection_name]
+        
+        # Check if collections exist
+        collection_names = db.list_collection_names()
+        
+        if scraped_collection_name not in collection_names:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Scraped collection '{scraped_collection_name}' not found"
+            )
+        
+        if shopify_collection_name not in collection_names:
+            # If Shopify collection doesn't exist, return all scraped products
+            print(f"Shopify collection '{shopify_collection_name}' not found, returning all scraped products")
+            scraped_products = list(scraped_collection.find({}, {"sku": 1, "title": 1, "category": 1, "manufacturer": 1, "status": 1}))
+            
+            # Convert _id to string
+            for product in scraped_products:
+                product["id"] = str(product["_id"])
+                del product["_id"]
+            
+            return {
+                "success": True,
+                "message": f"Shopify collection not found. Returning all {len(scraped_products)} scraped products",
+                "data": {
+                    "vendor": vendor,
+                    "scraped_collection": scraped_collection_name,
+                    "shopify_collection": shopify_collection_name,
+                    "total_scraped": len(scraped_products),
+                    "total_in_shopify": 0,
+                    "delta_count": len(scraped_products),
+                    "products_not_in_shopify": scraped_products
+                }
+            }
+        
+        # Get all SKUs from scraped collection
+        scraped_products = list(scraped_collection.find(
+            {"sku": {"$exists": True, "$ne": None, "$ne": ""}},
+            {"sku": 1, "title": 1, "category": 1, "manufacturer": 1, "status": 1}
+        ))
+        
+        scraped_skus = set()
+        scraped_sku_to_product = {}
+        
+        for product in scraped_products:
+            sku = product.get("sku")
+            if sku:
+                sku = str(sku).strip()
+                if sku:
+                    scraped_skus.add(sku)
+                    product["id"] = str(product["_id"])
+                    del product["_id"]
+                    scraped_sku_to_product[sku] = product
+        
+        # Get all SKUs from Shopify collection (nested in variants)
+        shopify_products = list(shopify_collection.find(
+            {"variants.edges": {"$exists": True}},
+            {"variants.edges.node.sku": 1}
+        ))
+        
+        shopify_skus = set()
+        
+        for product in shopify_products:
+            variants = product.get("variants", {}).get("edges", [])
+            for variant in variants:
+                node = variant.get("node", {})
+                sku = node.get("sku")
+                if sku:
+                    sku = str(sku).strip()
+                    if sku:
+                        shopify_skus.add(sku)
+        
+        # Find delta (products in scraped but not in Shopify)
+        delta_skus = scraped_skus - shopify_skus
+        
+        # Get full product details for delta SKUs
+        delta_products = []
+        for sku in delta_skus:
+            if sku in scraped_sku_to_product:
+                delta_products.append(scraped_sku_to_product[sku])
+        
+        # Sort by title for consistent ordering
+        delta_products.sort(key=lambda x: x.get("title", "").lower())
+        
+        return {
+            "success": True,
+            "message": f"Found {len(delta_products)} products not in Shopify",
+            "data": {
+                "vendor": vendor,
+                "scraped_collection": scraped_collection_name,
+                "shopify_collection": shopify_collection_name,
+                "total_scraped": len(scraped_skus),
+                "total_in_shopify": len(shopify_skus),
+                "delta_count": len(delta_products),
+                "products_not_in_shopify": delta_products
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting delta products: {str(e)}"
         )
