@@ -259,7 +259,7 @@ class DeltaMongoDBPipeline:
         summary = {
             'session_id': self.session_id,
             'session_date': datetime.now(UTC),
-            'manufacturer': 'Phoenix Tapware',
+            'manufacturer': 'Phoenix',
             'stats': self.session_stats,
             'spider_name': spider.name
         }

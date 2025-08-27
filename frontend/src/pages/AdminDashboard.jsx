@@ -126,7 +126,7 @@ const AnalyticsPage = ({ stats, websites }) => {
           Analytics
         </h1>
         <p style={{ color: 'var(--gray-600)' }}>
-          Website scraping performance and statistics
+          Websites performance and statistics
         </p>
       </div>
 

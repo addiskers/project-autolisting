@@ -1,7 +1,16 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import ProductCard from './ProductCard';
 import Loading from '../Shared/Loading';
-import { ChevronLeft, ChevronRight, Package } from 'lucide-react';
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Package, 
+  CheckSquare, 
+  Square, 
+  ShoppingCart, 
+  Loader 
+} from 'lucide-react';
+import { shopifyAPI, handleAPIError } from '../../services/api';
 
 const ProductList = ({ 
   products, 
@@ -10,6 +19,85 @@ const ProductList = ({
   currentPage = 1, 
   onPageChange 
 }) => {
+  const [selectedProducts, setSelectedProducts] = useState(new Set());
+  const [selectMode, setSelectMode] = useState(false);
+  const [bulkListingLoading, setBulkListingLoading] = useState(false);
+
+  // Reset selection when products change
+  useEffect(() => {
+    setSelectedProducts(new Set());
+  }, [products]);
+
+  const handleSelectionChange = (product, isSelected) => {
+    const newSelected = new Set(selectedProducts);
+    const productKey = product.id || product.sku;
+    
+    if (isSelected) {
+      newSelected.add(productKey);
+    } else {
+      newSelected.delete(productKey);
+    }
+    
+    setSelectedProducts(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedProducts.size === products.length) {
+      // Deselect all
+      setSelectedProducts(new Set());
+    } else {
+      // Select all
+      const allProductKeys = new Set(products.map(p => p.id || p.sku));
+      setSelectedProducts(allProductKeys);
+    }
+  };
+
+  const handleBulkListOnShopify = async () => {
+    const selectedProductsList = products.filter(p => 
+      selectedProducts.has(p.id || p.sku)
+    );
+    
+    if (selectedProductsList.length === 0) {
+      alert('Please select at least one product to list');
+      return;
+    }
+
+    const skus = selectedProductsList
+      .filter(p => p.sku)
+      .map(p => p.sku);
+
+    if (skus.length === 0) {
+      alert('Selected products must have SKUs to be listed');
+      return;
+    }
+
+    setBulkListingLoading(true);
+    
+    try {
+      const result = await shopifyAPI.listMultipleProducts(skus);
+      alert(`Successfully initiated listing for ${skus.length} products on Shopify!`);
+      console.log('Bulk listing result:', result);
+      
+      // Reset selection after successful listing
+      setSelectedProducts(new Set());
+      setSelectMode(false);
+    } catch (error) {
+      const errorMessage = handleAPIError(error);
+      alert(`Failed to list products: ${errorMessage}`);
+      console.error('Bulk listing error:', error);
+    } finally {
+      setBulkListingLoading(false);
+    }
+  };
+
+  const toggleSelectMode = () => {
+    setSelectMode(!selectMode);
+    if (selectMode) {
+      // Clear selection when exiting select mode
+      setSelectedProducts(new Set());
+    }
+  };
+
   if (loading) {
     return <Loading message="Loading products..." />;
   }
@@ -33,32 +121,128 @@ const ProductList = ({
   const totalPages = Math.ceil(pagination.total / 12);
   const startIndex = (currentPage - 1) * 12 + 1;
   const endIndex = Math.min(currentPage * 12, pagination.total);
+  const selectedCount = selectedProducts.size;
+  const isAllSelected = selectedCount === products.length && products.length > 0;
 
   return (
     <div>
-      {/* Results Summary */}
+      {/* Results Summary and Bulk Actions */}
       <div style={{ 
         marginBottom: '20px', 
         display: 'flex', 
         justifyContent: 'space-between', 
-        alignItems: 'center' 
+        alignItems: 'center',
+        flexWrap: 'wrap',
+        gap: '16px'
       }}>
         <div style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
           Showing {startIndex}-{endIndex} of {pagination.total.toLocaleString()} products
+          {selectMode && selectedCount > 0 && (
+            <span style={{ marginLeft: '8px', color: 'var(--primary-blue)', fontWeight: '600' }}>
+              ({selectedCount} selected)
+            </span>
+          )}
         </div>
         
-        {totalPages > 1 && (
-          <div style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
-            Page {currentPage} of {totalPages}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {totalPages > 1 && (
+            <div style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
+              Page {currentPage} of {totalPages}
+            </div>
+          )}
+          
+          {/* Select Mode Toggle */}
+          <button
+            onClick={toggleSelectMode}
+            className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
+            style={{ padding: '8px 12px', fontSize: '14px' }}
+          >
+            {selectMode ? (
+              <>
+                <CheckSquare size={16} />
+                Exit Select
+              </>
+            ) : (
+              <>
+                <Square size={16} />
+                Select Mode
+              </>
+            )}
+          </button>
+        </div>
       </div>
+
+      {/* Bulk Actions Bar */}
+      {selectMode && (
+        <div style={{
+          background: 'var(--light-blue)',
+          border: '1px solid var(--primary-blue)',
+          borderRadius: '8px',
+          padding: '16px',
+          marginBottom: '20px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <button
+              onClick={handleSelectAll}
+              className="btn btn-secondary"
+              style={{ padding: '8px 12px', fontSize: '14px' }}
+            >
+              {isAllSelected ? (
+                <>
+                  <Square size={16} />
+                  Deselect All
+                </>
+              ) : (
+                <>
+                  <CheckSquare size={16} />
+                  Select All
+                </>
+              )}
+            </button>
+            
+            <span style={{ fontSize: '14px', color: 'var(--dark-blue)' }}>
+              {selectedCount} of {products.length} products selected
+            </span>
+          </div>
+
+          <button
+            onClick={handleBulkListOnShopify}
+            disabled={selectedCount === 0 || bulkListingLoading}
+            className="btn btn-primary"
+            style={{ padding: '10px 16px', fontSize: '14px' }}
+          >
+            {bulkListingLoading ? (
+              <>
+                <Loader size={16} className="spinner" />
+                Listing {selectedCount} Products...
+              </>
+            ) : (
+              <>
+                <ShoppingCart size={16} />
+                List {selectedCount} on Shopify
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* Products Grid */}
       <div className="grid grid-3">
-        {products.map(product => (
-          <ProductCard key={product.id || product.sku} product={product} />
-        ))}
+        {products.map(product => {
+          const productKey = product.id || product.sku;
+          return (
+            <ProductCard 
+              key={productKey} 
+              product={product}
+              showCheckbox={selectMode}
+              isSelected={selectedProducts.has(productKey)}
+              onSelectionChange={handleSelectionChange}
+            />
+          );
+        })}
       </div>
 
       {/* Pagination */}

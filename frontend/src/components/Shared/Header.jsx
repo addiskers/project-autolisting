@@ -11,7 +11,7 @@ const Header = () => {
       <div className="header-left">
         <h1 className="logo">
           <Database size={24} style={{ marginRight: '8px' }} />
-          Web Scraper
+          Zenon TECNO
         </h1>
       </div>
       

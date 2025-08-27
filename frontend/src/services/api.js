@@ -3,8 +3,8 @@ import axios from 'axios';
 // Create axios instance
 const api = axios.create({
   baseURL: process.env.REACT_APP_API_URL || 'http://localhost:8000',
-  timeout: 10000,
-  headers: {
+  timeout: 3100000,
+   headers: {
     'Content-Type': 'application/json',
   },
 });
@@ -97,6 +97,27 @@ export const productsAPI = {
   }
 };
 
+// Shopify Listing API
+export const shopifyAPI = {
+  // List single product by SKU
+  listProduct: async (sku) => {
+    const response = await api.post(`/api/list/${sku}`);
+    return response.data;
+  },
+
+  // List multiple products by SKUs
+  listMultipleProducts: async (skus) => {
+    const response = await api.post('/api/list/bulk', { skus });
+    return response.data;
+  },
+
+  // Get listing status
+  getListingStatus: async (sku) => {
+    const response = await api.get(`/api/list/status/${sku}`);
+    return response.data;
+  }
+};
+
 // Scraping API
 export const scrapingAPI = {
   startScraping: async () => {
@@ -113,7 +134,6 @@ export const scrapingAPI = {
 // Websites API (for admin)
 export const websitesAPI = {
   getWebsites: async () => {
-    // Simulate website data - replace with real API
     return [
       {
         id: 1,

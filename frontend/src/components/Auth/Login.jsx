@@ -89,7 +89,7 @@ const Login = () => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-title">
-          Web Scraper Dashboard
+          Prodcut Management  Dashboard
         </div>
         
         {error && (

@@ -1,12 +1,14 @@
+// Example of how to use the updated components in your UserDashboard
+
 import React, { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Header from '../components/Shared/Header';
 import Sidebar from '../components/Shared/Sidebar';
-import ProductList from '../components/User/ProductList';
+import ProductList from '../components/User/ProductList'; // Updated component
 import CategoryFilter from '../components/User/CategoryFilter';
 import ScrapeButton from '../components/User/ScrapeButton';
-import { productsAPI, scrapingAPI, handleAPIError } from '../services/api';
-import { Package, Search as SearchIcon, Download } from 'lucide-react';
+import { productsAPI, scrapingAPI, shopifyAPI, handleAPIError } from '../services/api';
+import { Package, Search as SearchIcon, Download, ShoppingCart } from 'lucide-react';
 
 const UserDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -57,7 +59,7 @@ const UserDashboard = () => {
   };
 
   const loadProducts = async () => {
-    if (searchLoading) return; // Prevent multiple concurrent requests
+    if (searchLoading) return;
     
     setSearchLoading(true);
     try {
@@ -88,7 +90,7 @@ const UserDashboard = () => {
     setFilters(prev => ({
       ...prev,
       ...newFilters,
-      page: 1 // Reset to first page when filters change
+      page: 1
     }));
   };
 
@@ -100,7 +102,6 @@ const UserDashboard = () => {
   };
 
   const handleScrapeComplete = async () => {
-    // Refresh data after scraping
     await loadInitialData();
   };
 
@@ -111,7 +112,6 @@ const UserDashboard = () => {
         <Sidebar />
         <main className="content-area">
           <Routes>
-            {/* Main Products View */}
             <Route
               path="/"
               element={
@@ -129,7 +129,6 @@ const UserDashboard = () => {
               }
             />
             
-            {/* Search Page */}
             <Route
               path="/search"
               element={
@@ -145,10 +144,26 @@ const UserDashboard = () => {
               }
             />
             
-            {/* Scrape Page */}
             <Route
               path="/scrape"
               element={<ScrapePage onScrapeComplete={handleScrapeComplete} />}
+            />
+
+            {/* New Shopify Management Page */}
+            <Route
+              path="/shopify"
+              element={
+                <ShopifyPage
+                  products={products}
+                  categories={categories}
+                  filters={filters}
+                  pagination={pagination}
+                  loading={loading}
+                  searchLoading={searchLoading}
+                  onFilterChange={handleFilterChange}
+                  onPageChange={handlePageChange}
+                />
+              }
             />
           </Routes>
         </main>
@@ -157,7 +172,7 @@ const UserDashboard = () => {
   );
 };
 
-// Products Page Component
+// Enhanced Products Page with Shopify Integration
 const ProductsPage = ({ 
   products, 
   categories, 
@@ -182,10 +197,12 @@ const ProductsPage = ({
             Products
           </h1>
           <p style={{ color: 'var(--gray-600)' }}>
-            Browse and search through scraped products
+            Browse, search, and list products on Shopify
           </p>
         </div>
-        <ScrapeButton onComplete={onScrapeComplete} />
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <ScrapeButton onComplete={onScrapeComplete} />
+        </div>
       </div>
 
       <CategoryFilter
@@ -194,6 +211,70 @@ const ProductsPage = ({
         searchQuery={filters.search}
         onFilterChange={onFilterChange}
         loading={searchLoading}
+      />
+
+      {/* This now includes all the new functionality */}
+      <ProductList
+        products={products}
+        loading={loading || searchLoading}
+        pagination={pagination}
+        currentPage={filters.page}
+        onPageChange={onPageChange}
+      />
+    </div>
+  );
+};
+
+// Dedicated Shopify Management Page
+const ShopifyPage = ({ 
+  products, 
+  categories, 
+  filters, 
+  pagination, 
+  loading,
+  searchLoading,
+  onFilterChange, 
+  onPageChange 
+}) => {
+  return (
+    <div>
+      <div style={{ marginBottom: '24px' }}>
+        <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
+          <ShoppingCart size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+          Shopify Management
+        </h1>
+        <p style={{ color: 'var(--gray-600)' }}>
+          Manage product listings on Shopify with bulk operations
+        </p>
+      </div>
+
+      <div style={{ 
+        background: 'var(--light-blue)',
+        padding: '16px',
+        borderRadius: '8px',
+        marginBottom: '24px',
+        border: '1px solid var(--primary-blue)'
+      }}>
+        <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: 'var(--dark-blue)' }}>
+          Quick Actions
+        </h3>
+        <p style={{ fontSize: '14px', color: 'var(--gray-700)', marginBottom: '12px' }}>
+          Use "Select Mode" below to choose multiple products for bulk operations, or use individual "List on Shopify" buttons on each product.
+        </p>
+        <div style={{ fontSize: '12px', color: 'var(--gray-600)' }}>
+          • Individual listing: Click "List on Shopify" on any product card<br/>
+          • Bulk listing: Enable "Select Mode", choose products, then click "List X on Shopify"<br/>
+          • API Endpoint: Products are listed via /api/list/{`{sku}`} endpoint
+        </div>
+      </div>
+
+      <CategoryFilter
+        categories={categories}
+        selectedCategory={filters.category}
+        searchQuery={filters.search}
+        onFilterChange={onFilterChange}
+        loading={searchLoading}
+        showAdvanced={true}
       />
 
       <ProductList
@@ -207,7 +288,7 @@ const ProductsPage = ({
   );
 };
 
-// Search Page Component
+// Other page components remain the same...
 const SearchPage = ({ 
   products, 
   categories, 
@@ -225,7 +306,7 @@ const SearchPage = ({
           Advanced Search
         </h1>
         <p style={{ color: 'var(--gray-600)' }}>
-          Search products with detailed filters
+          Search products with detailed filters and list them on Shopify
         </p>
       </div>
 
@@ -249,7 +330,6 @@ const SearchPage = ({
   );
 };
 
-// Scrape Page Component
 const ScrapePage = ({ onScrapeComplete }) => {
   return (
     <div>
@@ -259,7 +339,7 @@ const ScrapePage = ({ onScrapeComplete }) => {
           Fetch Data
         </h1>
         <p style={{ color: 'var(--gray-600)' }}>
-          Scrape new product data from websites
+          Fetch new product data from websites
         </p>
       </div>
 
@@ -286,7 +366,7 @@ const ScrapePage = ({ onScrapeComplete }) => {
             border: '1px solid var(--light-blue)'
           }}>
             <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>
-              What happens when you scrape:
+              What happens when you fetch:
             </h4>
             <ul style={{ fontSize: '14px', color: 'var(--gray-600)', margin: 0, paddingLeft: '16px' }}>
               <li>Fetches latest product data from websites</li>
