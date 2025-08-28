@@ -16,9 +16,9 @@ function App() {
             {/* Public Routes */}
             <Route path="/login" element={<LoginPage />} />
             
-            {/* Protected Routes */}
+            {/* Protected Routes - Added /* wildcards for nested routing */}
             <Route
-              path="/admin"
+              path="/admin/*"
               element={
                 <PrivateRoute roles={['admin']}>
                   <AdminDashboard />
@@ -27,7 +27,7 @@ function App() {
             />
             
             <Route
-              path="/dashboard"
+              path="/dashboard/*"
               element={
                 <PrivateRoute roles={['user', 'admin']}>
                   <UserDashboard />

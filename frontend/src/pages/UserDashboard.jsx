@@ -1,5 +1,3 @@
-// Example of how to use the updated components in your UserDashboard
-
 import React, { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Header from '../components/Shared/Header';
@@ -7,8 +5,9 @@ import Sidebar from '../components/Shared/Sidebar';
 import ProductList from '../components/User/ProductList'; // Updated component
 import CategoryFilter from '../components/User/CategoryFilter';
 import ScrapeButton from '../components/User/ScrapeButton';
+import GapAnalysis from '../components/Shared/GapAnalysis';
 import { productsAPI, scrapingAPI, shopifyAPI, handleAPIError } from '../services/api';
-import { Package, Search as SearchIcon, Download, ShoppingCart } from 'lucide-react';
+import { Package, Search as SearchIcon, Download, ShoppingCart, GitBranch, Database } from 'lucide-react';
 
 const UserDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -143,13 +142,8 @@ const UserDashboard = () => {
                 />
               }
             />
-            
-            <Route
-              path="/scrape"
-              element={<ScrapePage onScrapeComplete={handleScrapeComplete} />}
-            />
 
-            {/* New Shopify Management Page */}
+            {/* Shopify Management Page */}
             <Route
               path="/shopify"
               element={
@@ -164,6 +158,17 @@ const UserDashboard = () => {
                   onPageChange={handlePageChange}
                 />
               }
+            />
+
+            {/* Gap Analysis Page */}
+            <Route
+              path="/gap"
+              element={<GapAnalysis />}
+            />
+            
+            <Route
+              path="/scrape"
+              element={<ScrapePage onScrapeComplete={handleScrapeComplete} />}
             />
           </Routes>
         </main>
@@ -199,9 +204,6 @@ const ProductsPage = ({
           <p style={{ color: 'var(--gray-600)' }}>
             Browse, search, and list products on Shopify
           </p>
-        </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <ScrapeButton onComplete={onScrapeComplete} />
         </div>
       </div>
 
@@ -264,7 +266,7 @@ const ShopifyPage = ({
         <div style={{ fontSize: '12px', color: 'var(--gray-600)' }}>
           • Individual listing: Click "List on Shopify" on any product card<br/>
           • Bulk listing: Enable "Select Mode", choose products, then click "List X on Shopify"<br/>
-          • API Endpoint: Products are listed via /api/list/{`{sku}`} endpoint
+          • API Endpoint: Products are listed via /api/list/sku endpoint
         </div>
       </div>
 
@@ -330,53 +332,195 @@ const SearchPage = ({
   );
 };
 
+// ENHANCED SCRAPE PAGE with vendor selection
 const ScrapePage = ({ onScrapeComplete }) => {
+  const [selectedVendor, setSelectedVendor] = useState('');
+  
+  // Available vendors - same as GapAnalysis
+  const vendors = [
+    { value: 'phoenix', label: 'Phoenix Tapware' },
+    { value: 'hansgrohe', label: 'Hansgrohe' },
+    { value: 'moen', label: 'Moen' },
+    { value: 'kohler', label: 'Kohler' }
+  ];
+
+  const handleVendorChange = (event) => {
+    setSelectedVendor(event.target.value);
+  };
+
   return (
     <div>
       <div style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
           <Download size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-          Fetch Data
+          {selectedVendor ? `Fetch Data from ${vendors.find(v => v.value === selectedVendor)?.label || selectedVendor}` : 'Fetch Data'}
         </h1>
         <p style={{ color: 'var(--gray-600)' }}>
-          Fetch new product data from websites
+          {selectedVendor 
+            ? `Fetch new product data from ${vendors.find(v => v.value === selectedVendor)?.label || selectedVendor} website and Shopify`
+            : 'Select a vendor and fetch product data from websites and Shopify'
+          }
         </p>
       </div>
 
-      <div className="card" style={{ maxWidth: '600px' }}>
-        <div className="card-header">
-          <h3 className="card-title">Data Scraping</h3>
-          <p className="card-subtitle">
-            Fetch the latest product information from configured websites
-          </p>
-        </div>
-        
-        <div className="card-body">
-          <ScrapeButton 
-            onComplete={onScrapeComplete}
-            fullWidth={true}
-            showDetails={true}
-          />
-          
-          <div style={{ 
-            marginTop: '24px', 
-            padding: '16px', 
-            backgroundColor: 'var(--lighter-blue)',
-            borderRadius: '8px',
-            border: '1px solid var(--light-blue)'
-          }}>
-            <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>
-              What happens when you fetch:
-            </h4>
-            <ul style={{ fontSize: '14px', color: 'var(--gray-600)', margin: 0, paddingLeft: '16px' }}>
-              <li>Fetches latest product data from websites</li>
-              <li>Updates existing products with new information</li>
-              <li>Adds newly discovered products</li>
-              <li>Process typically takes 2-5 minutes</li>
-            </ul>
+      {/* Vendor Selector */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div className="card-body" style={{ textAlign: 'center', padding: '32px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>
+            Select Vendor
+          </h3>
+          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+            <select
+              value={selectedVendor}
+              onChange={handleVendorChange}
+              className="form-select"
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                fontSize: '16px',
+                border: '2px solid var(--primary-blue)',
+                borderRadius: '8px',
+                backgroundColor: 'white'
+              }}
+            >
+              <option value="">Choose a vendor...</option>
+              {vendors.map(vendor => (
+                <option key={vendor.value} value={vendor.value}>
+                  {vendor.label}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>
+
+      {/* Data Fetching Cards */}
+      {selectedVendor && (
+        <div className="grid grid-2">
+          {/* Website Scraping Card */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">
+                <Download size={20} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                Website Scraping
+              </h3>
+              <p className="card-subtitle">
+                Fetch product data from {vendors.find(v => v.value === selectedVendor)?.label} website
+              </p>
+            </div>
+            
+            <div className="card-body">
+              <ScrapeButton 
+                vendor={selectedVendor}
+                type="scrape"
+                onComplete={onScrapeComplete}
+                fullWidth={true}
+                showDetails={true}
+              />
+              
+              <div style={{ 
+                marginTop: '24px', 
+                padding: '16px', 
+                backgroundColor: 'var(--lighter-blue)',
+                borderRadius: '8px',
+                border: '1px solid var(--light-blue)'
+              }}>
+                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>
+                  What happens when you fetch from website:
+                </h4>
+                <ul style={{ fontSize: '14px', color: 'var(--gray-600)', margin: 0, paddingLeft: '16px' }}>
+                  <li>Scrapes latest product data from the vendor website</li>
+                  <li>Updates existing products with new information</li>
+                  <li>Adds newly discovered products</li>
+                  <li>Process typically takes 2-5 minutes</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {/* Shopify Fetching Card */}
+          <div className="card">
+            <div className="card-header">
+              <h3 className="card-title">
+                <Database size={20} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+                Shopify Data Sync
+              </h3>
+              <p className="card-subtitle">
+                Fetch product data from our Shopify store for {vendors.find(v => v.value === selectedVendor)?.label}
+              </p>
+            </div>
+            
+            <div className="card-body">
+              <ScrapeButton 
+                vendor={selectedVendor}
+                type="shopify"
+                onComplete={onScrapeComplete}
+                fullWidth={true}
+                showDetails={true}
+              />
+              
+              <div style={{ 
+                marginTop: '24px', 
+                padding: '16px', 
+                backgroundColor: '#f0fdf4',
+                borderRadius: '8px',
+                border: '1px solid #bbf7d0'
+              }}>
+                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>
+                  What happens when you fetch from Shopify:
+                </h4>
+                <ul style={{ fontSize: '14px', color: 'var(--gray-600)', margin: 0, paddingLeft: '16px' }}>
+                  <li>Connects to your Shopify store via GraphQL API</li>
+                  <li>Fetches all products for the selected vendor</li>
+                  <li>Stores data in separate collection for analysis</li>
+                  <li>Process typically takes 1-2 minutes</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty State */}
+      {!selectedVendor && (
+        <div className="card">
+          <div className="card-body" style={{ textAlign: 'center', padding: '48px' }}>
+            <Download size={48} style={{ color: 'var(--gray-300)', marginBottom: '16px' }} />
+            <h3 style={{ marginBottom: '8px', color: 'var(--gray-600)' }}>
+              Select a vendor to begin
+            </h3>
+            <p style={{ color: 'var(--gray-500)' }}>
+              Choose a vendor from the dropdown above to start fetching data from both the website and Shopify
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Information Card */}
+      {selectedVendor && (
+        <div style={{ marginTop: '24px' }}>
+          <div style={{ 
+            background: 'linear-gradient(135deg, var(--lighter-blue) 0%, var(--light-blue) 100%)',
+            padding: '20px',
+            borderRadius: '12px',
+            border: '1px solid var(--primary-blue)'
+          }}>
+            <h4 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '12px', color: 'var(--dark-blue)' }}>
+              Data Fetching Strategy
+            </h4>
+            <div style={{ fontSize: '14px', color: 'var(--gray-700)' }}>
+              <p style={{ marginBottom: '8px' }}>
+                <strong>Website Scraping:</strong> Use this to get the latest product information directly from the vendor's website. 
+                This is your primary data source and should be run first.
+              </p>
+              <p style={{ marginBottom: '0' }}>
+                <strong>Shopify Sync:</strong> Use this to fetch existing products from your Shopify store. 
+                This helps with gap analysis and understanding what you already have listed.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

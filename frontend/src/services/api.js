@@ -97,6 +97,31 @@ export const productsAPI = {
   }
 };
 
+// Delta/Gap Analysis API
+export const deltaAPI = {
+  // Get delta analysis for a specific vendor
+  getDelta: async (vendor) => {
+    const response = await api.get(`/api/delta/${vendor}`);
+    return response.data;
+  },
+
+  // Get available vendors for delta analysis
+  getVendors: async () => {
+    try {
+      const response = await api.get('/api/delta/vendors');
+      return response.data;
+    } catch (error) {
+      // Fallback to hardcoded vendors if endpoint doesn't exist
+      return [
+        { value: 'phoenix', label: 'Phoenix Tapware' },
+        { value: 'hansgrohe', label: 'Hansgrohe' },
+        { value: 'moen', label: 'Moen' },
+        { value: 'kohler', label: 'Kohler' }
+      ];
+    }
+  }
+};
+
 // Shopify Listing API
 export const shopifyAPI = {
   // List single product by SKU
@@ -118,15 +143,60 @@ export const shopifyAPI = {
   }
 };
 
-// Scraping API
+// ENHANCED Scraping API with vendor support
 export const scrapingAPI = {
-  startScraping: async () => {
-    const response = await api.post('/api/scrape');
+  // Start scraping for a specific vendor
+  startScraping: async (vendor) => {
+    if (!vendor) {
+      throw new Error('Vendor is required for scraping');
+    }
+    
+    const response = await api.post(`/api/scrape/${vendor}`);
     return response.data;
   },
 
-  getScrapeStatus: async (taskId) => {
-    const response = await api.get(`/api/scrape/status/${taskId}`);
+  // Fetch Shopify data for a vendor
+  fetchShopifyData: async (vendor) => {
+    if (!vendor) {
+      throw new Error('Vendor is required for Shopify fetch');
+    }
+    
+    const response = await api.post(`/api/myweb/${vendor}`, {
+      vendor: vendor.toUpperCase() // Backend expects uppercase vendor
+    });
+    return response.data;
+  },
+
+  // Get scrape status for a vendor
+  getScrapeStatus: async (vendor, taskId) => {
+    const response = await api.get(`/api/scrape/status/${vendor}/${taskId}`);
+    return response.data;
+  },
+
+  // Get last scrape information for a vendor
+  getLastScrapeInfo: async (vendor) => {
+    try {
+      const response = await api.get(`/api/scrape/info/${vendor}`);
+      return response.data;
+    } catch (error) {
+      // Return null if no info available
+      return null;
+    }
+  },
+
+  // Check if scraping is currently active for a vendor
+  isScrapingActive: async (vendor) => {
+    try {
+      const response = await api.get(`/api/scrape/active/${vendor}`);
+      return response.data.active || false;
+    } catch (error) {
+      return false;
+    }
+  },
+
+  // Legacy method for backward compatibility
+  startScrapingLegacy: async () => {
+    const response = await api.post('/api/scrape');
     return response.data;
   }
 };
@@ -141,7 +211,8 @@ export const websitesAPI = {
         url: 'https://phoenixtapware.com.au',
         status: 'completed',
         lastScrape: '2024-08-24T10:30:00Z',
-        productsCount: 1250
+        productsCount: 1250,
+        vendor: 'phoenix'
       },
       {
         id: 2,
@@ -149,7 +220,8 @@ export const websitesAPI = {
         url: 'https://hansgrohe.com',
         status: 'pending',
         lastScrape: null,
-        productsCount: 0
+        productsCount: 0,
+        vendor: 'hansgrohe'
       },
       {
         id: 3,
@@ -157,7 +229,17 @@ export const websitesAPI = {
         url: 'https://moen.com',
         status: 'in-progress',
         lastScrape: '2024-08-24T09:15:00Z',
-        productsCount: 580
+        productsCount: 580,
+        vendor: 'moen'
+      },
+      {
+        id: 4,
+        name: 'Kohler',
+        url: 'https://kohler.com',
+        status: 'completed',
+        lastScrape: '2024-08-23T14:20:00Z',
+        productsCount: 892,
+        vendor: 'kohler'
       }
     ];
   },
@@ -180,6 +262,30 @@ export const websitesAPI = {
     // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1000));
     return { id, status };
+  },
+
+  // Start scraping for a specific website
+  startWebsiteScraping: async (websiteId) => {
+    const websites = await websitesAPI.getWebsites();
+    const website = websites.find(w => w.id === websiteId);
+    
+    if (!website) {
+      throw new Error('Website not found');
+    }
+    
+    return scrapingAPI.startScraping(website.vendor);
+  },
+
+  // Get scraping status for a website
+  getWebsiteScrapeStatus: async (websiteId) => {
+    const websites = await websitesAPI.getWebsites();
+    const website = websites.find(w => w.id === websiteId);
+    
+    if (!website) {
+      throw new Error('Website not found');
+    }
+    
+    return scrapingAPI.isScrapingActive(website.vendor);
   }
 };
 
@@ -188,6 +294,70 @@ export const healthAPI = {
   getHealth: async () => {
     const response = await api.get('/health');
     return response.data;
+  }
+};
+
+// Vendors API - centralized vendor management
+export const vendorsAPI = {
+  // Get all available vendors
+  getVendors: async () => {
+    return [
+      { 
+        value: 'phoenix', 
+        label: 'Phoenix Tapware',
+        website: 'https://phoenixtapware.com.au',
+        active: true
+      },
+      { 
+        value: 'hansgrohe', 
+        label: 'Hansgrohe',
+        website: 'https://hansgrohe.com',
+        active: true
+      },
+      { 
+        value: 'moen', 
+        label: 'Moen',
+        website: 'https://moen.com',
+        active: true
+      },
+      { 
+        value: 'kohler', 
+        label: 'Kohler',
+        website: 'https://kohler.com',
+        active: true
+      }
+    ];
+  },
+
+  // Get vendor info by key
+  getVendor: async (vendorKey) => {
+    const vendors = await vendorsAPI.getVendors();
+    return vendors.find(v => v.value === vendorKey);
+  },
+
+  // Get vendor scraping status
+  getVendorStatus: async (vendorKey) => {
+    try {
+      const [scrapingActive, lastScrapeInfo] = await Promise.all([
+        scrapingAPI.isScrapingActive(vendorKey),
+        scrapingAPI.getLastScrapeInfo(vendorKey)
+      ]);
+      
+      return {
+        vendor: vendorKey,
+        isScrapingActive: scrapingActive,
+        lastScrape: lastScrapeInfo?.lastScrape || null,
+        lastShopifyFetch: lastScrapeInfo?.lastShopifyFetch || null
+      };
+    } catch (error) {
+      return {
+        vendor: vendorKey,
+        isScrapingActive: false,
+        lastScrape: null,
+        lastShopifyFetch: null,
+        error: error.message
+      };
+    }
   }
 };
 
@@ -202,6 +372,52 @@ export const handleAPIError = (error) => {
   } else {
     // Other error
     return error.message || 'An unexpected error occurred';
+  }
+};
+
+// Utility functions for localStorage management
+export const storageUtils = {
+  // Save scraping status
+  saveScrapeStatus: (vendor, type, status) => {
+    const key = `${type}_${vendor}_status`;
+    localStorage.setItem(key, status);
+  },
+
+  // Get scraping status
+  getScrapeStatus: (vendor, type) => {
+    const key = `${type}_${vendor}_status`;
+    return localStorage.getItem(key);
+  },
+
+  // Remove scraping status
+  removeScrapeStatus: (vendor, type) => {
+    const key = `${type}_${vendor}_status`;
+    localStorage.removeItem(key);
+  },
+
+  // Save last scrape date
+  saveLastScrapeDate: (vendor, type, date = new Date()) => {
+    const key = `${type}_${vendor}_lastScrape`;
+    localStorage.setItem(key, date.toISOString());
+  },
+
+  // Get last scrape date
+  getLastScrapeDate: (vendor, type) => {
+    const key = `${type}_${vendor}_lastScrape`;
+    const dateStr = localStorage.getItem(key);
+    return dateStr ? new Date(dateStr) : null;
+  },
+
+  // Clear all scrape data for a vendor
+  clearVendorScrapeData: (vendor) => {
+    const keys = [
+      `scrape_${vendor}_status`,
+      `scrape_${vendor}_lastScrape`,
+      `shopify_${vendor}_status`,
+      `shopify_${vendor}_lastScrape`
+    ];
+    
+    keys.forEach(key => localStorage.removeItem(key));
   }
 };
 

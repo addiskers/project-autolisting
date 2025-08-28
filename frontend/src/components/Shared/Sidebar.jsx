@@ -9,7 +9,9 @@ import {
   Plus, 
   BarChart3,
   Search,
-  Download
+  Download,
+  GitBranch,
+  ShoppingCart
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -32,6 +34,11 @@ const Sidebar = () => {
       icon: <Plus size={18} /> 
     },
     { 
+      path: '/admin/gap', 
+      label: 'Gap Analysis', 
+      icon: <GitBranch size={18} /> 
+    },
+    { 
       path: '/admin/analytics', 
       label: 'Analytics', 
       icon: <BarChart3 size={18} /> 
@@ -48,6 +55,16 @@ const Sidebar = () => {
       path: '/dashboard/search', 
       label: 'Search', 
       icon: <Search size={18} /> 
+    },
+    { 
+      path: '/dashboard/shopify', 
+      label: 'Shopify', 
+      icon: <ShoppingCart size={18} /> 
+    },
+    { 
+      path: '/dashboard/gap', 
+      label: 'Gap Analysis', 
+      icon: <GitBranch size={18} /> 
     },
     { 
       path: '/dashboard/scrape', 
