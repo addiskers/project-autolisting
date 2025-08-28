@@ -1,6 +1,7 @@
 // frontend/src/components/Shared/GapAnalysis.jsx
 import React, { useState, useEffect } from 'react';
 import ProductCard from '../User/ProductCard';
+import ProductRow from '../User/ProductRow';
 import Loading from '../Shared/Loading';
 import CategoryFilter from '../User/CategoryFilter';
 import { 
@@ -12,7 +13,9 @@ import {
   Loader,
   AlertCircle,
   TrendingDown,
-  Database
+  Database,
+  Grid3X3,
+  List
 } from 'lucide-react';
 import { deltaAPI, shopifyAPI, handleAPIError } from '../../services/api';
 
@@ -25,6 +28,7 @@ const GapAnalysis = () => {
   const [selectedProducts, setSelectedProducts] = useState(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [bulkListingLoading, setBulkListingLoading] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('card'); // 'card' or 'row'
   const [filters, setFilters] = useState({
     category: '',
     search: ''
@@ -32,11 +36,25 @@ const GapAnalysis = () => {
 
   // Available vendors - you can make this dynamic by fetching from API
   const vendors = [
-    { value: 'phoenix', label: 'Phoenix Tapware' },
+    { value: 'phoenix', label: 'Phoenix' },
     { value: 'hansgrohe', label: 'Hansgrohe' },
     { value: 'moen', label: 'Moen' },
     { value: 'kohler', label: 'Kohler' }
   ];
+
+  // Load layout preference from localStorage
+  useEffect(() => {
+    const savedLayout = localStorage.getItem('productLayoutMode');
+    if (savedLayout && (savedLayout === 'card' || savedLayout === 'row')) {
+      setLayoutMode(savedLayout);
+    }
+  }, []);
+
+  // Save layout preference
+  const handleLayoutChange = (newLayout) => {
+    setLayoutMode(newLayout);
+    localStorage.setItem('productLayoutMode', newLayout);
+  };
 
   const loadDeltaData = async (vendor) => {
     if (!vendor) return;
@@ -190,35 +208,27 @@ const GapAnalysis = () => {
   return (
     <div>
       {/* Page Header */}
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
-          <GitBranch size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
+      <div className="page-header">
+        <h1 className="page-title">
+          <GitBranch size={24} />
           Gap Analysis
         </h1>
-        <p style={{ color: 'var(--gray-600)' }}>
+        <p className="page-subtitle">
           Find products that exist in scraped data but are missing from Shopify
         </p>
       </div>
 
       {/* Vendor Selector */}
-      <div className="card" style={{ marginBottom: '24px' }}>
-        <div className="card-body" style={{ textAlign: 'center', padding: '32px' }}>
-          <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>
+      <div className="card vendor-selector-card">
+        <div className="card-body">
+          <h3 className="vendor-selector-title">
             Select Vendor
           </h3>
-          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+          <div className="vendor-selector-container">
             <select
               value={selectedVendor}
               onChange={handleVendorChange}
-              className="form-select"
-              style={{
-                width: '100%',
-                padding: '12px 16px',
-                fontSize: '16px',
-                border: '2px solid var(--primary-blue)',
-                borderRadius: '8px',
-                backgroundColor: 'white'
-              }}
+              className="form-select vendor-select"
             >
               <option value="">Choose a vendor...</option>
               {vendors.map(vendor => (
@@ -240,50 +250,50 @@ const GapAnalysis = () => {
       {deltaData && !loading && (
         <>
           {/* Summary Cards */}
-          <div className="grid grid-4" style={{ marginBottom: '24px' }}>
+          <div className="grid grid-4 summary-cards">
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center' }}>
-                <Database size={32} style={{ color: 'var(--primary-blue)', marginBottom: '8px' }} />
-                <h3 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>
+              <div className="card-body summary-card-body">
+                <Database size={32} className="summary-icon primary-icon" />
+                <h3 className="summary-number">
                   {deltaData.data?.total_scraped?.toLocaleString() || 0}
                 </h3>
-                <p style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
+                <p className="summary-label">
                   Scraped Products
                 </p>
               </div>
             </div>
 
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center' }}>
-                <ShoppingCart size={32} style={{ color: 'var(--success)', marginBottom: '8px' }} />
-                <h3 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>
+              <div className="card-body summary-card-body">
+                <ShoppingCart size={32} className="summary-icon success-icon" />
+                <h3 className="summary-number">
                   {deltaData.data?.total_in_shopify?.toLocaleString() || 0}
                 </h3>
-                <p style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
+                <p className="summary-label">
                   In Shopify
                 </p>
               </div>
             </div>
 
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center' }}>
-                <TrendingDown size={32} style={{ color: 'var(--warning)', marginBottom: '8px' }} />
-                <h3 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>
+              <div className="card-body summary-card-body">
+                <TrendingDown size={32} className="summary-icon warning-icon" />
+                <h3 className="summary-number">
                   {deltaData.data?.delta_count?.toLocaleString() || 0}
                 </h3>
-                <p style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
+                <p className="summary-label">
                   Missing Products
                 </p>
               </div>
             </div>
 
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center' }}>
-                <AlertCircle size={32} style={{ color: 'var(--error)', marginBottom: '8px' }} />
-                <h3 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '4px' }}>
+              <div className="card-body summary-card-body">
+                <AlertCircle size={32} className="summary-icon error-icon" />
+                <h3 className="summary-number">
                   {filteredProducts?.length?.toLocaleString() || 0}
                 </h3>
-                <p style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
+                <p className="summary-label">
                   Filtered Results
                 </p>
               </div>
@@ -305,28 +315,38 @@ const GapAnalysis = () => {
           {filteredProducts.length > 0 ? (
             <>
               {/* Results Summary and Bulk Actions */}
-              <div style={{ 
-                marginBottom: '20px', 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '16px'
-              }}>
-                <div style={{ fontSize: '14px', color: 'var(--gray-600)' }}>
+              <div className="results-summary">
+                <div className="results-info">
                   Showing {filteredProducts.length} missing products
                   {selectMode && selectedCount > 0 && (
-                    <span style={{ marginLeft: '8px', color: 'var(--primary-blue)', fontWeight: '600' }}>
+                    <span className="selected-count">
                       ({selectedCount} selected)
                     </span>
                   )}
                 </div>
                 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <div className="results-actions">
+                  {/* Layout Toggle */}
+                  <div className="layout-toggle-container">
+                    <button
+                      onClick={() => handleLayoutChange('card')}
+                      className={`layout-toggle-btn ${layoutMode === 'card' ? 'active' : ''}`}
+                      title="Card View"
+                    >
+                      <Grid3X3 size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleLayoutChange('row')}
+                      className={`layout-toggle-btn ${layoutMode === 'row' ? 'active' : ''}`}
+                      title="Row View"
+                    >
+                      <List size={16} />
+                    </button>
+                  </div>
+
                   <button
                     onClick={toggleSelectMode}
                     className={`btn ${selectMode ? 'btn-primary' : 'btn-secondary'}`}
-                    style={{ padding: '8px 12px', fontSize: '14px' }}
                   >
                     {selectMode ? (
                       <>
@@ -345,21 +365,11 @@ const GapAnalysis = () => {
 
               {/* Bulk Actions Bar */}
               {selectMode && (
-                <div style={{
-                  background: 'var(--light-blue)',
-                  border: '1px solid var(--primary-blue)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  marginBottom: '20px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div className="bulk-actions-bar">
+                  <div className="bulk-actions-left">
                     <button
                       onClick={handleSelectAll}
                       className="btn btn-secondary"
-                      style={{ padding: '8px 12px', fontSize: '14px' }}
                     >
                       {isAllSelected ? (
                         <>
@@ -374,7 +384,7 @@ const GapAnalysis = () => {
                       )}
                     </button>
                     
-                    <span style={{ fontSize: '14px', color: 'var(--dark-blue)' }}>
+                    <span className="bulk-selection-info">
                       {selectedCount} of {filteredProducts.length} products selected
                     </span>
                   </div>
@@ -383,7 +393,6 @@ const GapAnalysis = () => {
                     onClick={handleBulkListOnShopify}
                     disabled={selectedCount === 0 || bulkListingLoading}
                     className="btn btn-primary"
-                    style={{ padding: '10px 16px', fontSize: '14px' }}
                   >
                     {bulkListingLoading ? (
                       <>
@@ -400,30 +409,47 @@ const GapAnalysis = () => {
                 </div>
               )}
 
-              {/* Products Grid */}
-              <div className="grid grid-3">
-                {filteredProducts.map(product => {
-                  const productKey = product.id || product.sku;
-                  return (
-                    <ProductCard 
-                      key={productKey} 
-                      product={product}
-                      showCheckbox={selectMode}
-                      isSelected={selectedProducts.has(productKey)}
-                      onSelectionChange={handleSelectionChange}
-                    />
-                  );
-                })}
-              </div>
+              {/* Products Display */}
+              {layoutMode === 'card' ? (
+                <div className="grid grid-4">
+                  {filteredProducts.map(product => {
+                    const productKey = product.id || product.sku;
+                    return (
+                      <ProductCard 
+                        key={productKey} 
+                        product={product}
+                        showCheckbox={selectMode}
+                        isSelected={selectedProducts.has(productKey)}
+                        onSelectionChange={handleSelectionChange}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="products-row-container">
+                  {filteredProducts.map(product => {
+                    const productKey = product.id || product.sku;
+                    return (
+                      <ProductRow 
+                        key={productKey} 
+                        product={product}
+                        showCheckbox={selectMode}
+                        isSelected={selectedProducts.has(productKey)}
+                        onSelectionChange={handleSelectionChange}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </>
           ) : (
             <div className="card">
-              <div className="card-body" style={{ textAlign: 'center', padding: '48px' }}>
-                <CheckSquare size={48} style={{ color: 'var(--success)', marginBottom: '16px' }} />
-                <h3 style={{ marginBottom: '8px', color: 'var(--gray-600)' }}>
+              <div className="card-body empty-state">
+                <CheckSquare size={48} className="empty-state-icon success-icon" />
+                <h3 className="empty-state-title">
                   No gap found!
                 </h3>
-                <p style={{ color: 'var(--gray-500)' }}>
+                <p className="empty-state-text">
                   All scraped products for {selectedVendor} are already in Shopify, or no products match your filters.
                 </p>
               </div>
@@ -435,12 +461,12 @@ const GapAnalysis = () => {
       {/* Empty State */}
       {!selectedVendor && !loading && (
         <div className="card">
-          <div className="card-body" style={{ textAlign: 'center', padding: '48px' }}>
-            <GitBranch size={48} style={{ color: 'var(--gray-300)', marginBottom: '16px' }} />
-            <h3 style={{ marginBottom: '8px', color: 'var(--gray-600)' }}>
+          <div className="card-body empty-state">
+            <GitBranch size={48} className="empty-state-icon" />
+            <h3 className="empty-state-title">
               Select a vendor to begin
             </h3>
-            <p style={{ color: 'var(--gray-500)' }}>
+            <p className="empty-state-text">
               Choose a vendor from the dropdown above to analyze the gap between scraped and Shopify products
             </p>
           </div>

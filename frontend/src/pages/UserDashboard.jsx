@@ -8,6 +8,7 @@ import ScrapeButton from '../components/User/ScrapeButton';
 import GapAnalysis from '../components/Shared/GapAnalysis';
 import { productsAPI, scrapingAPI, shopifyAPI, handleAPIError } from '../services/api';
 import { Package, Search as SearchIcon, Download, ShoppingCart, GitBranch, Database } from 'lucide-react';
+import ProductRow from '../components/User/ProductRow'; // Add this line
 
 const UserDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -338,7 +339,7 @@ const ScrapePage = ({ onScrapeComplete }) => {
   
   // Available vendors - same as GapAnalysis
   const vendors = [
-    { value: 'phoenix', label: 'Phoenix Tapware' },
+    { value: 'phoenix', label: 'Phoenix' },
     { value: 'hansgrohe', label: 'Hansgrohe' },
     { value: 'moen', label: 'Moen' },
     { value: 'kohler', label: 'Kohler' }

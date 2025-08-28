@@ -214,7 +214,7 @@ class DeltaMongoDBPipeline:
         tracked_fields = [
             'title', 'description', 'features', 'main_color', 'colors',
             'pressure_rating', 'temperature_rating', 'warranty',
-            'wels_rating', 'flow_rate', 'status', 'images'
+            'wels_rating', 'flow_rate', 'status',
         ]
         
         for field in tracked_fields:

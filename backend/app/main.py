@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 import time
 from datetime import datetime
 from pydantic import BaseModel
+import threading
 
 # Load environment variables from .env file
 load_dotenv()
@@ -22,6 +23,83 @@ class BulkListRequest(BaseModel):
 
 class ShopifyFetchRequest(BaseModel):
     vendor: str
+
+# Fetch Status Model for MongoDB (replaces Redis)
+class FetchStatus:
+    def __init__(self, mongo_client):
+        self.client = mongo_client
+        db_name = os.getenv("MONGO_DATABASE", "phoenix_products")
+        self.db = self.client[db_name]
+        self.collection = self.db["fetch"]
+    
+    def save_fetch_start(self, fetch_type: str, vendor: str, status: str = "running"):
+        """Save fetch start status"""
+        doc = {
+            "type": fetch_type,  # "scrape" or "shopify"
+            "name": vendor,
+            "status": status,
+            "started_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
+        
+        # Update if exists, insert if not
+        self.collection.update_one(
+            {"type": fetch_type, "name": vendor},
+            {"$set": doc},
+            upsert=True
+        )
+        print(f"Started {fetch_type} for {vendor}")
+    
+    def save_fetch_complete(self, fetch_type: str, vendor: str, success: bool = True, error: str = None):
+        """Save fetch completion status"""
+        update_doc = {
+            "status": "completed" if success else "error",
+            "completed_at": datetime.now(),
+            "updated_at": datetime.now()
+        }
+        
+        if error:
+            update_doc["error"] = error
+        
+        self.collection.update_one(
+            {"type": fetch_type, "name": vendor},
+            {"$set": update_doc}
+        )
+        print(f"Completed {fetch_type} for {vendor}: {'success' if success else 'error'}")
+    
+    def get_fetch_status(self, fetch_type: str, vendor: str):
+        """Get current fetch status"""
+        return self.collection.find_one(
+            {"type": fetch_type, "name": vendor},
+            sort=[("updated_at", -1)]
+        )
+    
+    def is_fetch_active(self, fetch_type: str, vendor: str) -> bool:
+        """Check if fetch is currently active"""
+        status_doc = self.get_fetch_status(fetch_type, vendor)
+        if not status_doc:
+            return False
+        
+        # Consider active if status is running and started less than 10 minutes ago
+        if status_doc.get("status") == "running":
+            started_at = status_doc.get("started_at")
+            if started_at:
+                time_diff = datetime.now() - started_at
+                return time_diff.total_seconds() < 600  # 10 minutes
+        
+        return False
+    
+    def get_last_fetch_date(self, fetch_type: str, vendor: str):
+        """Get last successful fetch date"""
+        status_doc = self.collection.find_one(
+            {"type": fetch_type, "name": vendor, "status": "completed"},
+            sort=[("completed_at", -1)]
+        )
+        
+        if status_doc and status_doc.get("completed_at"):
+            return status_doc["completed_at"]
+        
+        return None
 
 # Shopify Fetch Service Class
 class ShopifyFetchService:
@@ -338,7 +416,7 @@ class ShopifyFetchService:
         if hasattr(self, 'mongo_client'):
             self.mongo_client.close()
 
-# Shopify Sync Service Class (existing code)
+# Shopify Sync Service Class
 class ShopifySyncService:
     def __init__(self):
         """Initialize the Shopify sync service with environment variables"""
@@ -834,6 +912,9 @@ client = pymongo.MongoClient(mongo_uri)
 db = client[db_name]
 collection = db[collection_name]
 
+# Initialize fetch status tracker (replaces Redis)
+fetch_status = FetchStatus(client)
+
 # API Routes
 @app.get("/")
 async def root():
@@ -864,7 +945,8 @@ async def health():
             "status": "healthy",
             "database": "connected",
             "products": product_count,
-            "shopify": shopify_status
+            "shopify": shopify_status,
+            "fetch_tracking": "mongodb"
         }
     except Exception as e:
         return {
@@ -872,7 +954,7 @@ async def health():
             "error": str(e)
         }
 
-# NEW ENDPOINT: Get delta products (products not in Shopify)
+# Get delta products (products not in Shopify)
 @app.get("/api/delta/{vendor}")
 async def get_delta_products(vendor: str):
     """
@@ -920,12 +1002,12 @@ async def get_delta_products(vendor: str):
                     "category": 1, 
                     "manufacturer": 1, 
                     "status": 1,
-                    "images": 1,           # Include images
-                    "description": 1,      # Include description
-                    "main_color": 1,       # Include main color
-                    "features": 1,         # Include features
-                    "warranty": 1,         # Include warranty
-                    "url": 1               # Include source URL
+                    "images": 1,
+                    "description": 1,
+                    "main_color": 1,
+                    "features": 1,
+                    "warranty": 1,
+                    "url": 1
                 }
             ))
             
@@ -957,14 +1039,14 @@ async def get_delta_products(vendor: str):
                 "category": 1, 
                 "manufacturer": 1, 
                 "status": 1,
-                "images": 1,           # Include images
-                "description": 1,      # Include description
-                "main_color": 1,       # Include main color
-                "features": 1,         # Include features
-                "warranty": 1,         # Include warranty
-                "url": 1,              # Include source URL
-                "colors": 1,           # Include available colors
-                "breadcrumbs": 1       # Include breadcrumbs for context
+                "images": 1,
+                "description": 1,
+                "main_color": 1,
+                "features": 1,
+                "warranty": 1,
+                "url": 1,
+                "colors": 1,
+                "breadcrumbs": 1
             }
         ))
         
@@ -1063,7 +1145,7 @@ async def get_delta_products(vendor: str):
             detail=f"Error getting delta products: {str(e)}"
         )
 
-# NEW ENDPOINT: Fetch all Shopify products for a vendor
+# Fetch all Shopify products for a vendor
 @app.post("/api/myweb/{website_name}")
 async def fetch_shopify_products_for_vendor(website_name: str, request: ShopifyFetchRequest):
     """
@@ -1087,42 +1169,68 @@ async def fetch_shopify_products_for_vendor(website_name: str, request: ShopifyF
         website_name = website_name.strip().lower()
         vendor = request.vendor.strip()
         
+        # Check if Shopify fetch is already active
+        if fetch_status.is_fetch_active("shopify", vendor):
+            return {
+                "success": False,
+                "error": "Shopify fetch already active",
+                "message": f"Shopify fetch is already in progress for {vendor}"
+            }
+        
+        # Mark as active
+        fetch_status.save_fetch_start("shopify", vendor)
+        
         # Initialize Shopify fetch service
         try:
             fetch_service = ShopifyFetchService()
         except ValueError as e:
+            fetch_status.save_fetch_complete("shopify", vendor, success=False, error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Shopify configuration error: {str(e)}"
             )
         except Exception as e:
+            fetch_status.save_fetch_complete("shopify", vendor, success=False, error=str(e))
             raise HTTPException(
                 status_code=500,
                 detail=f"Failed to initialize Shopify fetch service: {str(e)}"
             )
         
-        try:
-            print(f"Starting fetch for vendor '{vendor}' to collection 'auspek_{website_name}'")
-            
-            # Fetch and store all products
-            total_products = fetch_service.sync_all_shopify_products(vendor, website_name)
-            
-            return {
-                "success": True,
-                "message": f"Successfully fetched {total_products} products from Shopify",
-                "data": {
-                    "vendor": vendor,
-                    "website_name": website_name,
-                    "collection_name": f"auspek_{website_name}",
-                    "total_products": total_products,
-                    "timestamp": datetime.now().isoformat()
-                }
+        def run_shopify_fetch():
+            try:
+                print(f"Starting Shopify fetch for vendor '{vendor}' to collection 'auspek_{website_name}'")
+                
+                # Fetch and store all products
+                total_products = fetch_service.sync_all_shopify_products(vendor, website_name)
+                
+                # Mark as completed
+                fetch_status.save_fetch_complete("shopify", vendor, success=True)
+                
+                print(f"Shopify fetch completed: {total_products} products")
+                
+            except Exception as e:
+                print(f"Shopify fetch failed: {str(e)}")
+                fetch_status.save_fetch_complete("shopify", vendor, success=False, error=str(e))
+            finally:
+                fetch_service.close_connection()
+        
+        # Start in background thread
+        thread = threading.Thread(target=run_shopify_fetch)
+        thread.daemon = True
+        thread.start()
+        
+        return {
+            "success": True,
+            "message": f"Shopify fetch started for vendor '{vendor}'",
+            "data": {
+                "vendor": vendor,
+                "website_name": website_name,
+                "collection_name": f"auspek_{website_name}",
+                "status": "running",
+                "timestamp": datetime.now().isoformat()
             }
-            
-        finally:
-            # Always close the connection
-            fetch_service.close_connection()
-            
+        }
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -1207,7 +1315,7 @@ async def get_product(product_id: str):
 
 @app.post("/api/scrape")
 async def start_scraping():
-    """Start scraping Phoenix products"""
+    """Start scraping Phoenix products (legacy endpoint)"""
     try:
         # Path to your scrapy project (adjust if needed)
         scrapy_path = "../"  # Since backend is inside webscraper folder
@@ -1266,6 +1374,237 @@ async def start_scraping():
             "error": str(e),
             "message": "Unexpected error during scraping"
         }
+
+@app.post("/api/scrape/{vendor}")
+async def start_vendor_scraping(vendor: str):
+    """Start scraping for a specific vendor"""
+    try:
+        # Validate vendor parameter
+        if not vendor or len(vendor.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Vendor parameter is required and cannot be empty"
+            )
+        
+        vendor = vendor.strip().lower()
+        
+        # List of valid vendors
+        valid_vendors = ['phoenix', 'hansgrohe', 'moen', 'kohler']
+        if vendor not in valid_vendors:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid vendor. Must be one of: {', '.join(valid_vendors)}"
+            )
+        
+        # Check if scraping is already active for this vendor
+        if fetch_status.is_fetch_active("scrape", vendor):
+            return {
+                "success": False,
+                "error": "Scraping already active",
+                "message": f"Scraping is already in progress for {vendor}"
+            }
+        
+        # Mark scraping as active
+        fetch_status.save_fetch_start("scrape", vendor)
+        
+        # Path to your scrapy project (adjust if needed)
+        scrapy_path = "../"  # Since backend is inside webscraper folder
+        
+        # Check if scrapy project exists
+        scrapy_cfg = os.path.join(scrapy_path, "scrapy.cfg")
+        if not os.path.exists(scrapy_cfg):
+            fetch_status.save_fetch_complete("scrape", vendor, success=False, error="Scrapy project not found")
+            return {
+                "success": False,
+                "error": f"Scrapy project not found at {scrapy_path}",
+                "message": "Make sure scrapy.cfg exists in parent directory"
+            }
+        
+        # Run scrapy command with vendor-specific settings
+        scrapy_command = [
+            "scrapy", "crawl", f"{vendor}_spider",  # Assuming you have vendor-specific spiders
+            "-s", f"MONGO_DATABASE={db_name}",
+            "-s", f"MONGO_COLLECTION={collection_name}", 
+            "-s", f"MONGO_URI={mongo_uri}",
+            "-s", f"VENDOR={vendor.upper()}"
+        ]
+        
+        # If you don't have vendor-specific spiders, use the integrated spider with vendor parameter
+        if vendor == 'phoenix':
+            scrapy_command = [
+                "scrapy", "crawl", "integrated_product",
+                "-s", f"MONGO_DATABASE={db_name}",
+                "-s", f"MONGO_COLLECTION={collection_name}", 
+                "-s", f"MONGO_URI={mongo_uri}",
+                "-s", f"VENDOR=PHOENIX"
+            ]
+        
+        # Start scraping process in background
+        def run_scraping():
+            try:
+                result = subprocess.run(
+                    scrapy_command,
+                    cwd=scrapy_path,
+                    capture_output=True, 
+                    text=True, 
+                    timeout=3000  # 50 minutes timeout
+                )
+                
+                # Mark as completed
+                if result.returncode == 0:
+                    fetch_status.save_fetch_complete("scrape", vendor, success=True)
+                else:
+                    fetch_status.save_fetch_complete("scrape", vendor, success=False, error=result.stderr)
+                
+            except subprocess.TimeoutExpired:
+                fetch_status.save_fetch_complete("scrape", vendor, success=False, error="Timeout")
+            except Exception as e:
+                fetch_status.save_fetch_complete("scrape", vendor, success=False, error=str(e))
+        
+        # Start scraping in background thread
+        scraping_thread = threading.Thread(target=run_scraping)
+        scraping_thread.daemon = True
+        scraping_thread.start()
+        
+        return {
+            "success": True,
+            "message": f"Scraping started for {vendor}",
+            "vendor": vendor,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unexpected error starting scraping: {str(e)}"
+        )
+
+@app.get("/api/scrape/active/{vendor}")
+async def check_scraping_active(vendor: str):
+    """Check if scraping is currently active for a vendor"""
+    try:
+        vendor = vendor.strip().lower()
+        is_active = fetch_status.is_fetch_active("scrape", vendor)
+        
+        return {
+            "success": True,
+            "vendor": vendor,
+            "active": is_active
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking scraping status: {str(e)}"
+        )
+
+@app.get("/api/scrape/info/{vendor}")
+async def get_last_scrape_info(vendor: str):
+    """Get last scrape information for a vendor"""
+    try:
+        vendor = vendor.strip().lower()
+        
+        # Get scrape status
+        scrape_status_doc = fetch_status.get_fetch_status("scrape", vendor)
+        shopify_status_doc = fetch_status.get_fetch_status("shopify", vendor)
+        
+        scrape_info = None
+        shopify_info = None
+        
+        if scrape_status_doc:
+            scrape_info = {
+                "timestamp": scrape_status_doc.get("completed_at", scrape_status_doc.get("started_at")).isoformat() if scrape_status_doc.get("completed_at") or scrape_status_doc.get("started_at") else None,
+                "success": scrape_status_doc.get("status") == "completed",
+                "status": scrape_status_doc.get("status"),
+                "error": scrape_status_doc.get("error")
+            }
+        
+        if shopify_status_doc:
+            shopify_info = {
+                "timestamp": shopify_status_doc.get("completed_at", shopify_status_doc.get("started_at")).isoformat() if shopify_status_doc.get("completed_at") or shopify_status_doc.get("started_at") else None,
+                "success": shopify_status_doc.get("status") == "completed",
+                "status": shopify_status_doc.get("status"),
+                "error": shopify_status_doc.get("error")
+            }
+        
+        return {
+            "success": True,
+            "vendor": vendor,
+            "lastScrape": scrape_info.get("timestamp") if scrape_info else None,
+            "scrapeSuccess": scrape_info.get("success") if scrape_info else None,
+            "scrapeInfo": scrape_info,
+            "lastShopifyFetch": shopify_info.get("timestamp") if shopify_info else None,
+            "shopifyInfo": shopify_info
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting scrape info: {str(e)}"
+        )
+
+@app.get("/api/vendors")
+async def get_vendors():
+    """Get all available vendors"""
+    return {
+        "success": True,
+        "vendors": [
+            {
+                "value": "phoenix",
+                "label": "Phoenix Tapware",
+                "website": "https://phoenixtapware.com.au",
+                "active": True
+            },
+            {
+                "value": "hansgrohe", 
+                "label": "Hansgrohe",
+                "website": "https://hansgrohe.com",
+                "active": True
+            },
+            {
+                "value": "moen",
+                "label": "Moen", 
+                "website": "https://moen.com",
+                "active": True
+            },
+            {
+                "value": "kohler",
+                "label": "Kohler",
+                "website": "https://kohler.com", 
+                "active": True
+            }
+        ]
+    }
+
+@app.get("/api/vendors/{vendor}/status")
+async def get_vendor_status(vendor: str):
+    """Get comprehensive status for a vendor"""
+    try:
+        vendor = vendor.strip().lower()
+        
+        # Check if scraping is active
+        is_scraping_active = fetch_status.is_fetch_active("scrape", vendor)
+        is_shopify_active = fetch_status.is_fetch_active("shopify", vendor)
+        
+        # Get last fetch dates
+        last_scrape_date = fetch_status.get_last_fetch_date("scrape", vendor)
+        last_shopify_date = fetch_status.get_last_fetch_date("shopify", vendor)
+        
+        return {
+            "success": True,
+            "vendor": vendor,
+            "isScrapingActive": is_scraping_active,
+            "isShopifyActive": is_shopify_active,
+            "lastScrape": last_scrape_date.isoformat() if last_scrape_date else None,
+            "lastShopifyFetch": last_shopify_date.isoformat() if last_shopify_date else None
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting vendor status: {str(e)}"
+        )
 
 @app.post("/api/list/bulk")
 async def sync_multiple_products_to_shopify(request: BulkListRequest):
@@ -1395,7 +1734,6 @@ async def sync_multiple_products_to_shopify(request: BulkListRequest):
             detail=f"Unexpected error during bulk sync: {str(e)}"
         )
 
-# Put the single SKU endpoint AFTER the bulk endpoint
 @app.post("/api/list/{sku}")
 async def sync_product_to_shopify(sku: str):
     """Sync a product to Shopify by SKU"""
@@ -1458,479 +1796,9 @@ async def sync_product_to_shopify(sku: str):
             status_code=500,
             detail=f"Unexpected error during sync: {str(e)}"
         )
-@app.post("/api/scrape/{vendor}")
-async def start_vendor_scraping(vendor: str):
-    """Start scraping for a specific vendor"""
-    try:
-        # Validate vendor parameter
-        if not vendor or len(vendor.strip()) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Vendor parameter is required and cannot be empty"
-            )
-        
-        vendor = vendor.strip().lower()
-        
-        # List of valid vendors
-        valid_vendors = ['phoenix', 'hansgrohe', 'moen', 'kohler']
-        if vendor not in valid_vendors:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid vendor. Must be one of: {', '.join(valid_vendors)}"
-            )
-        
-        # Check if scraping is already active for this vendor
-        active_key = f"scraping_active_{vendor}"
-        if redis_client and redis_client.get(active_key):
-            return {
-                "success": False,
-                "error": "Scraping already active",
-                "message": f"Scraping is already in progress for {vendor}"
-            }
-        
-        # Mark scraping as active
-        if redis_client:
-            redis_client.setex(active_key, 300, "true")  # 5 minute expiry
-        
-        # Path to your scrapy project (adjust if needed)
-        scrapy_path = "../"  # Since backend is inside webscraper folder
-        
-        # Check if scrapy project exists
-        scrapy_cfg = os.path.join(scrapy_path, "scrapy.cfg")
-        if not os.path.exists(scrapy_cfg):
-            # Clean up active flag
-            if redis_client:
-                redis_client.delete(active_key)
-            return {
-                "success": False,
-                "error": f"Scrapy project not found at {scrapy_path}",
-                "message": "Make sure scrapy.cfg exists in parent directory"
-            }
-        
-        # Run scrapy command with vendor-specific settings
-        scrapy_command = [
-            "scrapy", "crawl", f"{vendor}_spider",  # Assuming you have vendor-specific spiders
-            "-s", f"MONGO_DATABASE={db_name}",
-            "-s", f"MONGO_COLLECTION={collection_name}", 
-            "-s", f"MONGO_URI={mongo_uri}",
-            "-s", f"VENDOR={vendor.upper()}"
-        ]
-        
-        # If you don't have vendor-specific spiders, use the integrated spider with vendor parameter
-        if vendor == 'phoenix':
-            scrapy_command = [
-                "scrapy", "crawl", "integrated_product",
-                "-s", f"MONGO_DATABASE={db_name}",
-                "-s", f"MONGO_COLLECTION={collection_name}", 
-                "-s", f"MONGO_URI={mongo_uri}",
-                "-s", f"VENDOR=PHOENIX"
-            ]
-        
-        # Start scraping process in background
-        import threading
-        
-        def run_scraping():
-            try:
-                result = subprocess.run(
-                    scrapy_command,
-                    cwd=scrapy_path,
-                    capture_output=True, 
-                    text=True, 
-                    timeout=3000  # 50 minutes timeout
-                )
-                
-                # Store last scrape info
-                last_scrape_key = f"last_scrape_{vendor}"
-                scrape_info = {
-                    "vendor": vendor,
-                    "timestamp": datetime.now().isoformat(),
-                    "success": result.returncode == 0,
-                    "return_code": result.returncode,
-                    "output": result.stdout[-1000:] if result.stdout else None,
-                    "error": result.stderr[-1000:] if result.stderr else None
-                }
-                
-                if redis_client:
-                    redis_client.setex(last_scrape_key, 86400, json.dumps(scrape_info))  # Store for 24 hours
-                
-            except subprocess.TimeoutExpired:
-                scrape_info = {
-                    "vendor": vendor,
-                    "timestamp": datetime.now().isoformat(),
-                    "success": False,
-                    "error": "Timeout",
-                    "message": "Scraping timed out"
-                }
-                if redis_client:
-                    redis_client.setex(last_scrape_key, 86400, json.dumps(scrape_info))
-            
-            except Exception as e:
-                scrape_info = {
-                    "vendor": vendor,
-                    "timestamp": datetime.now().isoformat(),
-                    "success": False,
-                    "error": str(e),
-                    "message": "Unexpected error during scraping"
-                }
-                if redis_client:
-                    redis_client.setex(last_scrape_key, 86400, json.dumps(scrape_info))
-            
-            finally:
-                # Clear active flag
-                if redis_client:
-                    redis_client.delete(active_key)
-        
-        # Start scraping in background thread
-        scraping_thread = threading.Thread(target=run_scraping)
-        scraping_thread.daemon = True
-        scraping_thread.start()
-        
-        return {
-            "success": True,
-            "message": f"Scraping started for {vendor}",
-            "vendor": vendor,
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        # Clean up active flag
-        if redis_client:
-            redis_client.delete(f"scraping_active_{vendor}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error starting scraping: {str(e)}"
-        )
 
-@app.get("/api/scrape/active/{vendor}")
-async def check_scraping_active(vendor: str):
-    """Check if scraping is currently active for a vendor"""
-    try:
-        vendor = vendor.strip().lower()
-        active_key = f"scraping_active_{vendor}"
-        
-        is_active = False
-        if redis_client:
-            is_active = bool(redis_client.get(active_key))
-        
-        return {
-            "success": True,
-            "vendor": vendor,
-            "active": is_active
-        }
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error checking scraping status: {str(e)}"
-        )
-
-@app.get("/api/scrape/info/{vendor}")
-async def get_last_scrape_info(vendor: str):
-    """Get last scrape information for a vendor"""
-    try:
-        vendor = vendor.strip().lower()
-        last_scrape_key = f"last_scrape_{vendor}"
-        
-        if not redis_client:
-            return {
-                "success": True,
-                "vendor": vendor,
-                "lastScrape": None,
-                "message": "Redis not available, no scrape history"
-            }
-        
-        scrape_info_str = redis_client.get(last_scrape_key)
-        if not scrape_info_str:
-            return {
-                "success": True,
-                "vendor": vendor,
-                "lastScrape": None,
-                "message": "No scrape history available"
-            }
-        
-        scrape_info = json.loads(scrape_info_str)
-        return {
-            "success": True,
-            "vendor": vendor,
-            "lastScrape": scrape_info.get("timestamp"),
-            "scrapeSuccess": scrape_info.get("success"),
-            "scrapeInfo": scrape_info
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error getting scrape info: {str(e)}"
-        )
-
-@app.get("/api/vendors")
-async def get_vendors():
-    """Get all available vendors"""
-    return {
-        "success": True,
-        "vendors": [
-            {
-                "value": "phoenix",
-                "label": "Phoenix Tapware",
-                "website": "https://phoenixtapware.com.au",
-                "active": True
-            },
-            {
-                "value": "hansgrohe", 
-                "label": "Hansgrohe",
-                "website": "https://hansgrohe.com",
-                "active": True
-            },
-            {
-                "value": "moen",
-                "label": "Moen", 
-                "website": "https://moen.com",
-                "active": True
-            },
-            {
-                "value": "kohler",
-                "label": "Kohler",
-                "website": "https://kohler.com", 
-                "active": True
-            }
-        ]
-    }
-
-@app.get("/api/vendors/{vendor}/status")
-async def get_vendor_status(vendor: str):
-    """Get comprehensive status for a vendor"""
-    try:
-        vendor = vendor.strip().lower()
-        
-        # Check if scraping is active
-        active_key = f"scraping_active_{vendor}"
-        is_active = False
-        if redis_client:
-            is_active = bool(redis_client.get(active_key))
-        
-        # Get last scrape info
-        last_scrape_key = f"last_scrape_{vendor}"
-        last_shopify_key = f"last_shopify_{vendor}"
-        
-        last_scrape = None
-        last_shopify = None
-        
-        if redis_client:
-            scrape_info_str = redis_client.get(last_scrape_key)
-            if scrape_info_str:
-                scrape_info = json.loads(scrape_info_str)
-                last_scrape = scrape_info.get("timestamp")
-            
-            shopify_info_str = redis_client.get(last_shopify_key)
-            if shopify_info_str:
-                shopify_info = json.loads(shopify_info_str)
-                last_shopify = shopify_info.get("timestamp")
-        
-        return {
-            "success": True,
-            "vendor": vendor,
-            "isScrapingActive": is_active,
-            "lastScrape": last_scrape,
-            "lastShopifyFetch": last_shopify
-        }
-        
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error getting vendor status: {str(e)}"
-        )
-
-# Update the existing Shopify fetch endpoint to store last fetch info
-@app.post("/api/myweb/{website_name}")
-async def fetch_shopify_products_for_vendor_enhanced(website_name: str, request: ShopifyFetchRequest):
-    """
-    Enhanced version that stores last fetch information
-    """
-    try:
-        # Validate inputs
-        if not website_name or len(website_name.strip()) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Website name is required and cannot be empty"
-            )
-        
-        if not request.vendor or len(request.vendor.strip()) == 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Vendor name is required and cannot be empty"
-            )
-        
-        website_name = website_name.strip().lower()
-        vendor = request.vendor.strip()
-        
-        # Check if Shopify fetch is already active
-        active_key = f"shopify_active_{website_name}"
-        if redis_client and redis_client.get(active_key):
-            return {
-                "success": False,
-                "error": "Shopify fetch already active",
-                "message": f"Shopify fetch is already in progress for {website_name}"
-            }
-        
-        # Mark as active
-        if redis_client:
-            redis_client.setex(active_key, 300, "true")  # 5 minute expiry
-        
-        # Initialize Shopify fetch service
-        try:
-            fetch_service = ShopifyFetchService()
-        except ValueError as e:
-            if redis_client:
-                redis_client.delete(active_key)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Shopify configuration error: {str(e)}"
-            )
-        except Exception as e:
-            if redis_client:
-                redis_client.delete(active_key)
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to initialize Shopify fetch service: {str(e)}"
-            )
-        
-        try:
-            print(f"Starting Shopify fetch for vendor '{vendor}' to collection 'auspek_{website_name}'")
-            
-            # Fetch and store all products
-            total_products = fetch_service.sync_all_shopify_products(vendor, website_name)
-            
-            # Store last fetch info
-            fetch_info = {
-                "vendor": vendor,
-                "website_name": website_name,
-                "timestamp": datetime.now().isoformat(),
-                "success": True,
-                "total_products": total_products
-            }
-            
-            if redis_client:
-                last_fetch_key = f"last_shopify_{website_name}"
-                redis_client.setex(last_fetch_key, 86400, json.dumps(fetch_info))  # Store for 24 hours
-            
-            return {
-                "success": True,
-                "message": f"Successfully fetched {total_products} products from Shopify",
-                "data": {
-                    "vendor": vendor,
-                    "website_name": website_name,
-                    "collection_name": f"auspek_{website_name}",
-                    "total_products": total_products,
-                    "timestamp": datetime.now().isoformat()
-                }
-            }
-            
-        except Exception as e:
-            # Store error info
-            error_info = {
-                "vendor": vendor,
-                "website_name": website_name,
-                "timestamp": datetime.now().isoformat(),
-                "success": False,
-                "error": str(e)
-            }
-            
-            if redis_client:
-                last_fetch_key = f"last_shopify_{website_name}"
-                redis_client.setex(last_fetch_key, 86400, json.dumps(error_info))
-            
-            raise HTTPException(
-                status_code=500,
-                detail=f"Error during Shopify fetch: {str(e)}"
-            )
-            
-        finally:
-            # Always close the connection and clear active flag
-            fetch_service.close_connection()
-            if redis_client:
-                redis_client.delete(active_key)
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        if redis_client:
-            redis_client.delete(f"shopify_active_{website_name}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error during fetch: {str(e)}"
-        )
-
-# Add Redis client initialization (add this near the top of your file)
-import redis
-import json
-from datetime import datetime
-
-# Initialize Redis client for storing scraping status (optional)
-try:
-    redis_client = redis.Redis(
-        host=os.getenv("REDIS_HOST", "localhost"),
-        port=int(os.getenv("REDIS_PORT", 6379)),
-        db=int(os.getenv("REDIS_DB", 0)),
-        decode_responses=True
-    )
-    # Test connection
-    redis_client.ping()
-    print("Redis connected successfully")
-except Exception as e:
-    print(f"Redis connection failed: {e}. Running without Redis.")
-    redis_client = None
-
-# Add this to your imports at the top
-import threading
-import subprocess
-import json
-
-# Update health check to include Redis status
-@app.get("/health")
-async def health_enhanced():
-    """Enhanced health check"""
-    try:
-        # Test MongoDB connection
-        client.admin.command('ping')
-        product_count = collection.count_documents({})
-        
-        # Test Shopify connection if credentials are available
-        shopify_status = "not_configured"
-        try:
-            shopify_url = os.getenv("SHOPIFY_GRAPHQL_URL")
-            shopify_token = os.getenv("SHOPIFY_ACCESS_TOKEN")
-            if shopify_url and shopify_token:
-                shopify_status = "configured"
-            else:
-                shopify_status = "missing_credentials"
-        except:
-            shopify_status = "error"
-        
-        # Test Redis connection
-        redis_status = "not_available"
-        if redis_client:
-            try:
-                redis_client.ping()
-                redis_status = "connected"
-            except:
-                redis_status = "error"
-        
-        return {
-            "status": "healthy",
-            "database": "connected",
-            "products": product_count,
-            "shopify": shopify_status,
-            "redis": redis_status,
-            "features": {
-                "vendor_scraping": True,
-                "shopify_sync": True,
-                "gap_analysis": True,
-                "status_tracking": redis_client is not None
-            }
-        }
-    except Exception as e:
-        return {
-            "status": "unhealthy",
-            "error": str(e)
-        }
+# Remove Redis client initialization - no longer needed
+print("✅ Backend initialized with MongoDB-based fetch tracking (No Redis dependency)")
+print(f"📊 Database: {db_name}")
+print(f"📦 Collection: {collection_name}")
+print(f"🔄 Fetch tracking: MongoDB 'fetch' collection")

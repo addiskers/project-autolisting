@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import ProductCard from './ProductCard';
+import ProductRow from './ProductRow';
 import Loading from '../Shared/Loading';
 import { 
   ChevronLeft, 
@@ -8,7 +9,9 @@ import {
   CheckSquare, 
   Square, 
   ShoppingCart, 
-  Loader 
+  Loader,
+  Grid3X3,
+  List
 } from 'lucide-react';
 import { shopifyAPI, handleAPIError } from '../../services/api';
 
@@ -22,11 +25,26 @@ const ProductList = ({
   const [selectedProducts, setSelectedProducts] = useState(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [bulkListingLoading, setBulkListingLoading] = useState(false);
+  const [layoutMode, setLayoutMode] = useState('card'); // 'card' or 'row'
 
   // Reset selection when products change
   useEffect(() => {
     setSelectedProducts(new Set());
   }, [products]);
+
+  // Load layout preference from localStorage
+  useEffect(() => {
+    const savedLayout = localStorage.getItem('productLayoutMode');
+    if (savedLayout && (savedLayout === 'card' || savedLayout === 'row')) {
+      setLayoutMode(savedLayout);
+    }
+  }, []);
+
+  // Save layout preference
+  const handleLayoutChange = (newLayout) => {
+    setLayoutMode(newLayout);
+    localStorage.setItem('productLayoutMode', newLayout);
+  };
 
   const handleSelectionChange = (product, isSelected) => {
     const newSelected = new Set(selectedProducts);
@@ -126,7 +144,7 @@ const ProductList = ({
 
   return (
     <div>
-      {/* Results Summary and Bulk Actions */}
+      {/* Results Summary and Controls */}
       <div style={{ 
         marginBottom: '20px', 
         display: 'flex', 
@@ -150,6 +168,29 @@ const ProductList = ({
               Page {currentPage} of {totalPages}
             </div>
           )}
+          
+          {/* Layout Toggle */}
+          <div style={{ 
+            display: 'flex', 
+            border: '1px solid var(--gray-300)', 
+            borderRadius: '8px',
+            overflow: 'hidden'
+          }}>
+            <button
+              onClick={() => handleLayoutChange('card')}
+              className={`layout-toggle-btn ${layoutMode === 'card' ? 'active' : ''}`}
+              title="Card View"
+            >
+              <Grid3X3 size={16} />
+            </button>
+            <button
+              onClick={() => handleLayoutChange('row')}
+              className={`layout-toggle-btn ${layoutMode === 'row' ? 'active' : ''}`}
+              title="Row View"
+            >
+              <List size={16} />
+            </button>
+          </div>
           
           {/* Select Mode Toggle */}
           <button
@@ -229,21 +270,38 @@ const ProductList = ({
         </div>
       )}
 
-      {/* Products Grid */}
-      <div className="grid grid-3">
-        {products.map(product => {
-          const productKey = product.id || product.sku;
-          return (
-            <ProductCard 
-              key={productKey} 
-              product={product}
-              showCheckbox={selectMode}
-              isSelected={selectedProducts.has(productKey)}
-              onSelectionChange={handleSelectionChange}
-            />
-          );
-        })}
-      </div>
+      {/* Products Display */}
+      {layoutMode === 'card' ? (
+        <div className="grid grid-4">
+          {products.map(product => {
+            const productKey = product.id || product.sku;
+            return (
+              <ProductCard 
+                key={productKey} 
+                product={product}
+                showCheckbox={selectMode}
+                isSelected={selectedProducts.has(productKey)}
+                onSelectionChange={handleSelectionChange}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <div className="products-row-container">
+          {products.map(product => {
+            const productKey = product.id || product.sku;
+            return (
+              <ProductRow 
+                key={productKey} 
+                product={product}
+                showCheckbox={selectMode}
+                isSelected={selectedProducts.has(productKey)}
+                onSelectionChange={handleSelectionChange}
+              />
+            );
+          })}
+        </div>
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (
