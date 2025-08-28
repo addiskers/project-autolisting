@@ -1,4 +1,3 @@
-// frontend/src/components/Shared/Sidebar.jsx
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -8,10 +7,9 @@ import {
   Globe, 
   Plus, 
   BarChart3,
-  Search,
   Download,
   GitBranch,
-  ShoppingCart
+  History
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -34,6 +32,11 @@ const Sidebar = () => {
       icon: <Plus size={18} /> 
     },
     { 
+      path: '/admin/history', 
+      label: 'History', 
+      icon: <History size={18} /> 
+    },
+    { 
       path: '/admin/gap', 
       label: 'Gap Analysis', 
       icon: <GitBranch size={18} /> 
@@ -50,16 +53,6 @@ const Sidebar = () => {
       path: '/dashboard', 
       label: 'Products', 
       icon: <Package size={18} /> 
-    },
-    { 
-      path: '/dashboard/search', 
-      label: 'Search', 
-      icon: <Search size={18} /> 
-    },
-    { 
-      path: '/dashboard/shopify', 
-      label: 'Shopify', 
-      icon: <ShoppingCart size={18} /> 
     },
     { 
       path: '/dashboard/gap', 

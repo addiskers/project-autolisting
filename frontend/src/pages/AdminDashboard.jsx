@@ -9,6 +9,7 @@ import GapAnalysis from '../components/Shared/GapAnalysis';
 import ScrapeButton from '../components/User/ScrapeButton';
 import { websitesAPI, healthAPI, vendorsAPI } from '../services/api';
 import { Globe, Plus, Activity, Database, Download, BarChart3 } from 'lucide-react';
+import HistoryPage from '../components/Admin/HistoryPage'; // New History component
 
 const AdminDashboard = () => {
   const [websites, setWebsites] = useState([]);
@@ -94,6 +95,10 @@ const AdminDashboard = () => {
                   onRefresh={loadData}
                 />
               }
+            />
+             <Route
+              path="/history"
+              element={<HistoryPage />}
             />
             
             {/* Add Website */}

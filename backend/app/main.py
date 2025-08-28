@@ -1796,7 +1796,102 @@ async def sync_product_to_shopify(sku: str):
             status_code=500,
             detail=f"Unexpected error during sync: {str(e)}"
         )
-
+@app.get("/api/admin/history")
+async def get_fetch_history(
+    page: int = 1,
+    limit: int = 50,
+    type_filter: Optional[str] = None,  # 'scrape' or 'shopify'
+    vendor_filter: Optional[str] = None,
+    status_filter: Optional[str] = None  # 'completed', 'running', 'error'
+):
+    """Get fetch history from the fetch collection for admin dashboard"""
+    try:
+        # Get database and fetch collection
+        db_name = os.getenv("MONGO_DATABASE", "phoenix_products")
+        db = client[db_name]
+        fetch_collection = db["fetch"]
+        
+        # Build query
+        query = {}
+        if type_filter:
+            query["type"] = type_filter
+        if vendor_filter:
+            query["name"] = {"$regex": vendor_filter, "$options": "i"}
+        if status_filter:
+            query["status"] = status_filter
+        
+        # Get total count
+        total = fetch_collection.count_documents(query)
+        
+        # Get fetch history with pagination, sorted by most recent first
+        skip = (page - 1) * limit
+        cursor = fetch_collection.find(query).sort("updated_at", -1).skip(skip).limit(limit)
+        
+        history = []
+        for doc in cursor:
+            # Calculate duration if completed
+            duration = None
+            if doc.get("completed_at") and doc.get("started_at"):
+                start_time = doc["started_at"]
+                end_time = doc["completed_at"]
+                duration_seconds = (end_time - start_time).total_seconds()
+                
+                # Format duration nicely
+                if duration_seconds < 60:
+                    duration = f"{int(duration_seconds)}s"
+                elif duration_seconds < 3600:
+                    duration = f"{int(duration_seconds / 60)}m {int(duration_seconds % 60)}s"
+                else:
+                    duration = f"{int(duration_seconds / 3600)}h {int((duration_seconds % 3600) / 60)}m"
+            
+            # Convert ObjectId to string
+            doc["id"] = str(doc["_id"])
+            del doc["_id"]
+            
+            # Add calculated duration
+            doc["duration"] = duration
+            
+            # Format timestamps for frontend
+            if doc.get("started_at"):
+                doc["started_at"] = doc["started_at"].isoformat()
+            if doc.get("completed_at"):
+                doc["completed_at"] = doc["completed_at"].isoformat()
+            if doc.get("updated_at"):
+                doc["updated_at"] = doc["updated_at"].isoformat()
+            
+            history.append(doc)
+        
+        # Get summary stats
+        total_scrapes = fetch_collection.count_documents({"type": "scrape"})
+        total_shopify = fetch_collection.count_documents({"type": "shopify"})
+        completed_today = fetch_collection.count_documents({
+            "status": "completed",
+            "completed_at": {
+                "$gte": datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            }
+        })
+        
+        return {
+            "success": True,
+            "history": history,
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "has_next": skip + limit < total,
+            "has_prev": page > 1,
+            "stats": {
+                "total_operations": total,
+                "total_scrapes": total_scrapes,
+                "total_shopify_fetches": total_shopify,
+                "completed_today": completed_today
+            }
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error getting fetch history: {str(e)}"
+        )
 # Remove Redis client initialization - no longer needed
 print("✅ Backend initialized with MongoDB-based fetch tracking (No Redis dependency)")
 print(f"📊 Database: {db_name}")

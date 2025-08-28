@@ -2,13 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import Header from '../components/Shared/Header';
 import Sidebar from '../components/Shared/Sidebar';
-import ProductList from '../components/User/ProductList'; // Updated component
+import ProductList from '../components/User/ProductList';
 import CategoryFilter from '../components/User/CategoryFilter';
 import ScrapeButton from '../components/User/ScrapeButton';
 import GapAnalysis from '../components/Shared/GapAnalysis';
-import { productsAPI, scrapingAPI, shopifyAPI, handleAPIError } from '../services/api';
-import { Package, Search as SearchIcon, Download, ShoppingCart, GitBranch, Database } from 'lucide-react';
-import ProductRow from '../components/User/ProductRow'; // Add this line
+import { productsAPI, scrapingAPI, handleAPIError } from '../services/api';
+import { Package, Download, Database } from 'lucide-react';
 
 const UserDashboard = () => {
   const [products, setProducts] = useState([]);
@@ -124,43 +123,10 @@ const UserDashboard = () => {
                   searchLoading={searchLoading}
                   onFilterChange={handleFilterChange}
                   onPageChange={handlePageChange}
-                  onScrapeComplete={handleScrapeComplete}
                 />
               }
             />
             
-            <Route
-              path="/search"
-              element={
-                <SearchPage
-                  products={products}
-                  categories={categories}
-                  filters={filters}
-                  pagination={pagination}
-                  searchLoading={searchLoading}
-                  onFilterChange={handleFilterChange}
-                  onPageChange={handlePageChange}
-                />
-              }
-            />
-
-            {/* Shopify Management Page */}
-            <Route
-              path="/shopify"
-              element={
-                <ShopifyPage
-                  products={products}
-                  categories={categories}
-                  filters={filters}
-                  pagination={pagination}
-                  loading={loading}
-                  searchLoading={searchLoading}
-                  onFilterChange={handleFilterChange}
-                  onPageChange={handlePageChange}
-                />
-              }
-            />
-
             {/* Gap Analysis Page */}
             <Route
               path="/gap"
@@ -178,7 +144,7 @@ const UserDashboard = () => {
   );
 };
 
-// Enhanced Products Page with Shopify Integration
+// Main Products Page
 const ProductsPage = ({ 
   products, 
   categories, 
@@ -187,8 +153,7 @@ const ProductsPage = ({
   loading, 
   searchLoading,
   onFilterChange, 
-  onPageChange,
-  onScrapeComplete 
+  onPageChange
 }) => {
   return (
     <div>
@@ -216,7 +181,6 @@ const ProductsPage = ({
         loading={searchLoading}
       />
 
-      {/* This now includes all the new functionality */}
       <ProductList
         products={products}
         loading={loading || searchLoading}
@@ -228,116 +192,11 @@ const ProductsPage = ({
   );
 };
 
-// Dedicated Shopify Management Page
-const ShopifyPage = ({ 
-  products, 
-  categories, 
-  filters, 
-  pagination, 
-  loading,
-  searchLoading,
-  onFilterChange, 
-  onPageChange 
-}) => {
-  return (
-    <div>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
-          <ShoppingCart size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-          Shopify Management
-        </h1>
-        <p style={{ color: 'var(--gray-600)' }}>
-          Manage product listings on Shopify with bulk operations
-        </p>
-      </div>
-
-      <div style={{ 
-        background: 'var(--light-blue)',
-        padding: '16px',
-        borderRadius: '8px',
-        marginBottom: '24px',
-        border: '1px solid var(--primary-blue)'
-      }}>
-        <h3 style={{ fontSize: '16px', fontWeight: '600', marginBottom: '8px', color: 'var(--dark-blue)' }}>
-          Quick Actions
-        </h3>
-        <p style={{ fontSize: '14px', color: 'var(--gray-700)', marginBottom: '12px' }}>
-          Use "Select Mode" below to choose multiple products for bulk operations, or use individual "List on Shopify" buttons on each product.
-        </p>
-        <div style={{ fontSize: '12px', color: 'var(--gray-600)' }}>
-          • Individual listing: Click "List on Shopify" on any product card<br/>
-          • Bulk listing: Enable "Select Mode", choose products, then click "List X on Shopify"<br/>
-          • API Endpoint: Products are listed via /api/list/sku endpoint
-        </div>
-      </div>
-
-      <CategoryFilter
-        categories={categories}
-        selectedCategory={filters.category}
-        searchQuery={filters.search}
-        onFilterChange={onFilterChange}
-        loading={searchLoading}
-        showAdvanced={true}
-      />
-
-      <ProductList
-        products={products}
-        loading={loading || searchLoading}
-        pagination={pagination}
-        currentPage={filters.page}
-        onPageChange={onPageChange}
-      />
-    </div>
-  );
-};
-
-// Other page components remain the same...
-const SearchPage = ({ 
-  products, 
-  categories, 
-  filters, 
-  pagination, 
-  searchLoading,
-  onFilterChange, 
-  onPageChange 
-}) => {
-  return (
-    <div>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
-          <SearchIcon size={24} style={{ marginRight: '8px', verticalAlign: 'middle' }} />
-          Advanced Search
-        </h1>
-        <p style={{ color: 'var(--gray-600)' }}>
-          Search products with detailed filters and list them on Shopify
-        </p>
-      </div>
-
-      <CategoryFilter
-        categories={categories}
-        selectedCategory={filters.category}
-        searchQuery={filters.search}
-        onFilterChange={onFilterChange}
-        loading={searchLoading}
-        showAdvanced={true}
-      />
-
-      <ProductList
-        products={products}
-        loading={searchLoading}
-        pagination={pagination}
-        currentPage={filters.page}
-        onPageChange={onPageChange}
-      />
-    </div>
-  );
-};
-
-// ENHANCED SCRAPE PAGE with vendor selection
+// Fetch Data Page
 const ScrapePage = ({ onScrapeComplete }) => {
   const [selectedVendor, setSelectedVendor] = useState('');
   
-  // Available vendors - same as GapAnalysis
+  // Available vendors
   const vendors = [
     { value: 'phoenix', label: 'Phoenix' },
     { value: 'hansgrohe', label: 'Hansgrohe' },

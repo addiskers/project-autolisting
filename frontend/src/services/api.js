@@ -108,8 +108,8 @@ export const deltaAPI = {
   // Get available vendors for delta analysis
   getVendors: async () => {
     try {
-      const response = await api.get('/api/delta/vendors');
-      return response.data;
+      const response = await api.get('/api/vendors');
+      return response.data.vendors || [];
     } catch (error) {
       // Fallback to hardcoded vendors if endpoint doesn't exist
       return [
@@ -143,7 +143,7 @@ export const shopifyAPI = {
   }
 };
 
-// ENHANCED Scraping API with vendor support
+// UPDATED Scraping API with MongoDB-based status tracking and history
 export const scrapingAPI = {
   // Start scraping for a specific vendor
   startScraping: async (vendor) => {
@@ -167,13 +167,17 @@ export const scrapingAPI = {
     return response.data;
   },
 
-  // Get scrape status for a vendor
-  getScrapeStatus: async (vendor, taskId) => {
-    const response = await api.get(`/api/scrape/status/${vendor}/${taskId}`);
-    return response.data;
+  // Check if scraping is currently active for a vendor
+  isScrapingActive: async (vendor) => {
+    try {
+      const response = await api.get(`/api/scrape/active/${vendor}`);
+      return response.data.active || false;
+    } catch (error) {
+      return false;
+    }
   },
 
-  // Get last scrape information for a vendor
+  // Get last scrape information for a vendor (from MongoDB fetch collection)
   getLastScrapeInfo: async (vendor) => {
     try {
       const response = await api.get(`/api/scrape/info/${vendor}`);
@@ -184,13 +188,30 @@ export const scrapingAPI = {
     }
   },
 
-  // Check if scraping is currently active for a vendor
-  isScrapingActive: async (vendor) => {
+  // Get vendor status with both scraping and Shopify fetch info
+  getVendorStatus: async (vendor) => {
     try {
-      const response = await api.get(`/api/scrape/active/${vendor}`);
-      return response.data.active || false;
+      const response = await api.get(`/api/vendors/${vendor}/status`);
+      return response.data;
     } catch (error) {
-      return false;
+      return {
+        vendor: vendor,
+        isScrapingActive: false,
+        isShopifyActive: false,
+        lastScrape: null,
+        lastShopifyFetch: null,
+        error: error.message
+      };
+    }
+  },
+
+  // NEW: Get fetch history for admin dashboard
+  getFetchHistory: async (params = {}) => {
+    try {
+      const response = await api.get('/api/admin/history', { params });
+      return response.data;
+    } catch (error) {
+      throw error;
     }
   },
 
@@ -301,32 +322,38 @@ export const healthAPI = {
 export const vendorsAPI = {
   // Get all available vendors
   getVendors: async () => {
-    return [
-      { 
-        value: 'phoenix', 
-        label: 'Phoenix Tapware',
-        website: 'https://phoenixtapware.com.au',
-        active: true
-      },
-      { 
-        value: 'hansgrohe', 
-        label: 'Hansgrohe',
-        website: 'https://hansgrohe.com',
-        active: true
-      },
-      { 
-        value: 'moen', 
-        label: 'Moen',
-        website: 'https://moen.com',
-        active: true
-      },
-      { 
-        value: 'kohler', 
-        label: 'Kohler',
-        website: 'https://kohler.com',
-        active: true
-      }
-    ];
+    try {
+      const response = await api.get('/api/vendors');
+      return response.data.vendors || [];
+    } catch (error) {
+      // Fallback to hardcoded vendors
+      return [
+        { 
+          value: 'phoenix', 
+          label: 'Phoenix Tapware',
+          website: 'https://phoenixtapware.com.au',
+          active: true
+        },
+        { 
+          value: 'hansgrohe', 
+          label: 'Hansgrohe',
+          website: 'https://hansgrohe.com',
+          active: true
+        },
+        { 
+          value: 'moen', 
+          label: 'Moen',
+          website: 'https://moen.com',
+          active: true
+        },
+        { 
+          value: 'kohler', 
+          label: 'Kohler',
+          website: 'https://kohler.com',
+          active: true
+        }
+      ];
+    }
   },
 
   // Get vendor info by key
@@ -335,24 +362,15 @@ export const vendorsAPI = {
     return vendors.find(v => v.value === vendorKey);
   },
 
-  // Get vendor scraping status
+  // Get vendor scraping status (from MongoDB fetch collection)
   getVendorStatus: async (vendorKey) => {
     try {
-      const [scrapingActive, lastScrapeInfo] = await Promise.all([
-        scrapingAPI.isScrapingActive(vendorKey),
-        scrapingAPI.getLastScrapeInfo(vendorKey)
-      ]);
-      
-      return {
-        vendor: vendorKey,
-        isScrapingActive: scrapingActive,
-        lastScrape: lastScrapeInfo?.lastScrape || null,
-        lastShopifyFetch: lastScrapeInfo?.lastShopifyFetch || null
-      };
+      return await scrapingAPI.getVendorStatus(vendorKey);
     } catch (error) {
       return {
         vendor: vendorKey,
         isScrapingActive: false,
+        isShopifyActive: false,
         lastScrape: null,
         lastShopifyFetch: null,
         error: error.message
@@ -375,49 +393,78 @@ export const handleAPIError = (error) => {
   }
 };
 
-// Utility functions for localStorage management
-export const storageUtils = {
-  // Save scraping status
-  saveScrapeStatus: (vendor, type, status) => {
-    const key = `${type}_${vendor}_status`;
-    localStorage.setItem(key, status);
+// Utility functions for working with the new MongoDB-based system
+export const fetchUtils = {
+  // Get formatted last fetch dates
+  getLastFetchDates: async (vendor) => {
+    try {
+      const info = await scrapingAPI.getLastScrapeInfo(vendor);
+      return {
+        lastScrape: info?.lastScrape ? new Date(info.lastScrape) : null,
+        lastShopifyFetch: info?.lastShopifyFetch ? new Date(info.lastShopifyFetch) : null,
+        scrapeInfo: info?.scrapeInfo,
+        shopifyInfo: info?.shopifyInfo
+      };
+    } catch (error) {
+      return {
+        lastScrape: null,
+        lastShopifyFetch: null,
+        scrapeInfo: null,
+        shopifyInfo: null
+      };
+    }
   },
 
-  // Get scraping status
-  getScrapeStatus: (vendor, type) => {
-    const key = `${type}_${vendor}_status`;
-    return localStorage.getItem(key);
+  // Check if any fetch operation is currently active
+  isAnyFetchActive: async (vendor) => {
+    try {
+      const status = await scrapingAPI.getVendorStatus(vendor);
+      return status.isScrapingActive || status.isShopifyActive;
+    } catch (error) {
+      return false;
+    }
   },
 
-  // Remove scraping status
-  removeScrapeStatus: (vendor, type) => {
-    const key = `${type}_${vendor}_status`;
-    localStorage.removeItem(key);
+  // Format date for display
+  formatDate: (date) => {
+    if (!date) return null;
+    if (typeof date === 'string') date = new Date(date);
+    return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString();
   },
 
-  // Save last scrape date
-  saveLastScrapeDate: (vendor, type, date = new Date()) => {
-    const key = `${type}_${vendor}_lastScrape`;
-    localStorage.setItem(key, date.toISOString());
-  },
-
-  // Get last scrape date
-  getLastScrapeDate: (vendor, type) => {
-    const key = `${type}_${vendor}_lastScrape`;
-    const dateStr = localStorage.getItem(key);
-    return dateStr ? new Date(dateStr) : null;
-  },
-
-  // Clear all scrape data for a vendor
-  clearVendorScrapeData: (vendor) => {
-    const keys = [
-      `scrape_${vendor}_status`,
-      `scrape_${vendor}_lastScrape`,
-      `shopify_${vendor}_status`,
-      `shopify_${vendor}_lastScrape`
-    ];
-    
-    keys.forEach(key => localStorage.removeItem(key));
+  // Get fetch status with user-friendly messages
+  getFetchStatusMessage: async (vendor) => {
+    try {
+      const status = await scrapingAPI.getVendorStatus(vendor);
+      const messages = [];
+      
+      if (status.isScrapingActive) {
+        messages.push('Website scraping is currently running...');
+      }
+      
+      if (status.isShopifyActive) {
+        messages.push('Shopify fetch is currently running...');
+      }
+      
+      if (messages.length === 0) {
+        if (status.lastScrape || status.lastShopifyFetch) {
+          const dates = [];
+          if (status.lastScrape) {
+            dates.push(`Website: ${fetchUtils.formatDate(status.lastScrape)}`);
+          }
+          if (status.lastShopifyFetch) {
+            dates.push(`Shopify: ${fetchUtils.formatDate(status.lastShopifyFetch)}`);
+          }
+          messages.push(`Last fetched - ${dates.join(', ')}`);
+        } else {
+          messages.push('No recent fetch activity');
+        }
+      }
+      
+      return messages.join(' ');
+    } catch (error) {
+      return 'Unable to determine fetch status';
+    }
   }
 };
 
