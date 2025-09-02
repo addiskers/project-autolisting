@@ -52,7 +52,7 @@ const HistoryPage = () => {
     setFilters(prev => ({
       ...prev,
       [key]: value,
-      page: 1 // Reset to first page when filters change
+      page: 1 
     }));
   };
 

@@ -5,11 +5,11 @@ import Sidebar from '../components/Shared/Sidebar';
 import WebsiteList from '../components/Admin/WebsiteList';
 import AddWebsite from '../components/Admin/AddWebsite';
 import Dashboard from '../components/Admin/Dashboard';
-import GapAnalysis from '../components/Shared/GapAnalysis';
 import ScrapeButton from '../components/User/ScrapeButton';
+import HistoryPage from '../components/Admin/HistoryPage';
+import ListingHistoryPage from '../components/Admin/ListingHistoryPage';
 import { websitesAPI, healthAPI, vendorsAPI } from '../services/api';
-import { Globe, Plus, Activity, Database, Download, BarChart3 } from 'lucide-react';
-import HistoryPage from '../components/Admin/HistoryPage'; // New History component
+import { Globe, Download, BarChart3, Database, Activity, ShoppingCart } from 'lucide-react';
 
 const AdminDashboard = () => {
   const [websites, setWebsites] = useState([]);
@@ -34,7 +34,6 @@ const AdminDashboard = () => {
 
       setWebsites(websitesData);
       
-      // Calculate stats
       const completed = websitesData.filter(w => w.status === 'completed').length;
       const pending = websitesData.filter(w => w.status === 'pending').length;
       const totalProducts = websitesData.reduce((sum, w) => sum + (w.productsCount || 0), 0);
@@ -62,7 +61,7 @@ const AdminDashboard = () => {
   };
 
   const handleScrapeComplete = () => {
-    loadData(); // Reload data after scraping
+    loadData(); 
   };
 
   return (
@@ -96,9 +95,17 @@ const AdminDashboard = () => {
                 />
               }
             />
-             <Route
+            
+            {/* Fetch Operations History */}
+            <Route
               path="/history"
               element={<HistoryPage />}
+            />
+            
+            {/* Listing Operations History */}
+            <Route
+              path="/listing-history"
+              element={<ListingHistoryPage />}
             />
             
             {/* Add Website */}
@@ -109,18 +116,6 @@ const AdminDashboard = () => {
                   onWebsiteAdded={handleWebsiteAdded}
                 />
               }
-            />
-
-            {/* Gap Analysis */}
-            <Route
-              path="/gap"
-              element={<GapAnalysis />}
-            />
-            
-            {/* Analytics */}
-            <Route
-              path="/analytics"
-              element={<AnalyticsPage stats={stats} websites={websites} />}
             />
 
             {/* Admin Scrape Management */}
@@ -135,77 +130,6 @@ const AdminDashboard = () => {
   );
 };
 
-// Simple Analytics Component
-const AnalyticsPage = ({ stats, websites }) => {
-  const statusCounts = websites.reduce((acc, website) => {
-    acc[website.status] = (acc[website.status] || 0) + 1;
-    return acc;
-  }, {});
-
-  return (
-    <div>
-      <div style={{ marginBottom: '24px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: '700', marginBottom: '8px' }}>
-          Analytics
-        </h1>
-        <p style={{ color: 'var(--gray-600)' }}>
-          Websites performance and statistics
-        </p>
-      </div>
-
-      <div className="grid grid-2">
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Website Status Distribution</h3>
-          </div>
-          <div className="card-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {Object.entries(statusCounts).map(([status, count]) => (
-                <div key={status} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ textTransform: 'capitalize', color: 'var(--gray-700)' }}>
-                    {status.replace('-', ' ')}:
-                  </span>
-                  <span className={`status ${
-                    status === 'completed' ? 'status-success' :
-                    status === 'pending' ? 'status-warning' :
-                    status === 'in-progress' ? 'status-info' : 'status-error'
-                  }`}>
-                    {count} websites
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-header">
-            <h3 className="card-title">Products by Website</h3>
-          </div>
-          <div className="card-body">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {websites
-                .filter(w => w.productsCount > 0)
-                .sort((a, b) => b.productsCount - a.productsCount)
-                .map(website => (
-                  <div key={website.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ color: 'var(--gray-700)', fontSize: '14px' }}>
-                      {website.name}:
-                    </span>
-                    <span style={{ fontWeight: '600', color: 'var(--primary-blue)' }}>
-                      {website.productsCount.toLocaleString()}
-                    </span>
-                  </div>
-                ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-// NEW ADMIN SCRAPE PAGE with vendor management
 const AdminScrapePage = ({ onScrapeComplete }) => {
   const [selectedVendor, setSelectedVendor] = useState('');
   const [vendors, setVendors] = useState([]);
@@ -253,7 +177,7 @@ const AdminScrapePage = ({ onScrapeComplete }) => {
   };
 
   const handleScrapeComplete = () => {
-    loadVendorStatuses(); // Refresh statuses
+    loadVendorStatuses();
     if (onScrapeComplete) {
       onScrapeComplete();
     }
@@ -278,6 +202,26 @@ const AdminScrapePage = ({ onScrapeComplete }) => {
         <p style={{ color: 'var(--gray-600)' }}>
           Manage data scraping and Shopify sync for all vendors
         </p>
+      </div>
+
+      {/* Quick Access Links */}
+      <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap' }}>
+        <a 
+          href="/admin/history" 
+          className="btn btn-secondary"
+          style={{ textDecoration: 'none' }}
+        >
+          <Download size={16} />
+          View Fetch History
+        </a>
+        <a 
+          href="/admin/listing-history" 
+          className="btn btn-secondary"
+          style={{ textDecoration: 'none' }}
+        >
+          <ShoppingCart size={16} />
+          View Listing History
+        </a>
       </div>
 
       {/* Vendor Overview Cards */}
@@ -452,6 +396,18 @@ const AdminScrapePage = ({ onScrapeComplete }) => {
                   <li>Takes 1-2 minutes to complete</li>
                 </ul>
               </div>
+
+              <div>
+                <h4 style={{ fontSize: '14px', fontWeight: '600', marginBottom: '8px', color: 'var(--warning)' }}>
+                  Product Listing
+                </h4>
+                <ul style={{ fontSize: '14px', color: 'var(--gray-600)', margin: 0, paddingLeft: '16px' }}>
+                  <li>Use Gap Analysis to find products to list</li>
+                  <li>Products can be listed individually or in bulk</li>
+                  <li>All listing operations are tracked in history</li>
+                  <li>Check Listing History for operation details</li>
+                </ul>
+              </div>
             </div>
             
             <div style={{ 
@@ -463,7 +419,7 @@ const AdminScrapePage = ({ onScrapeComplete }) => {
             }}>
               <strong style={{ fontSize: '14px', color: 'var(--dark-blue)' }}>Best Practice:</strong>
               <span style={{ fontSize: '14px', color: 'var(--gray-700)', marginLeft: '8px' }}>
-                Run website scraping first to get the latest product data, then run Shopify sync to enable accurate gap analysis.
+                Run website scraping first to get the latest product data, then run Shopify sync to enable accurate gap analysis. Use gap analysis to identify and list missing products on Shopify.
               </span>
             </div>
           </div>

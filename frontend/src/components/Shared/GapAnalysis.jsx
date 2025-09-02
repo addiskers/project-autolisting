@@ -34,7 +34,6 @@ const GapAnalysis = () => {
     search: ''
   });
 
-  // Available vendors - you can make this dynamic by fetching from API
   const vendors = [
     { value: 'phoenix', label: 'Phoenix' },
     { value: 'hansgrohe', label: 'Hansgrohe' },
@@ -42,7 +41,6 @@ const GapAnalysis = () => {
     { value: 'kohler', label: 'Kohler' }
   ];
 
-  // Load layout preference from localStorage
   useEffect(() => {
     const savedLayout = localStorage.getItem('productLayoutMode');
     if (savedLayout && (savedLayout === 'card' || savedLayout === 'row')) {
@@ -50,7 +48,6 @@ const GapAnalysis = () => {
     }
   }, []);
 
-  // Save layout preference
   const handleLayoutChange = (newLayout) => {
     setLayoutMode(newLayout);
     localStorage.setItem('productLayoutMode', newLayout);
@@ -72,8 +69,6 @@ const GapAnalysis = () => {
       
       const products = response.data?.products_not_in_shopify || [];
       setFilteredProducts(products);
-      
-      // Extract unique categories
       const uniqueCategories = [...new Set(
         products
           .map(product => product.category)
@@ -90,20 +85,16 @@ const GapAnalysis = () => {
     }
   };
 
-  // Filter products based on search and category
   useEffect(() => {
     if (!deltaData?.data?.products_not_in_shopify) return;
     
     let products = [...deltaData.data.products_not_in_shopify];
     
-    // Category filter
     if (filters.category) {
       products = products.filter(product => 
         product.category === filters.category
       );
     }
-    
-    // Search filter
     if (filters.search) {
       const searchLower = filters.search.toLowerCase();
       products = products.filter(product =>
@@ -180,11 +171,9 @@ const GapAnalysis = () => {
       alert(`Successfully initiated listing for ${skus.length} products on Shopify!`);
       console.log('Bulk listing result:', result);
       
-      // Reset selection after successful listing
       setSelectedProducts(new Set());
       setSelectMode(false);
       
-      // Optionally reload data to get updated gap
       loadDeltaData(selectedVendor);
     } catch (error) {
       const errorMessage = handleAPIError(error);

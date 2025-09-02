@@ -1,21 +1,17 @@
-import requests
 import os
-import tempfile
-from urllib.parse import urlparse
-import pymongo
-from typing import List, Dict, Any, Optional
-import json
 import time
-from dotenv import load_dotenv
-
-load_dotenv()
-
+import tempfile
+import requests
+import pymongo
+from datetime import datetime
+from typing import Optional, Dict, Any, List
+from urllib.parse import urlparse
+from ..core.config import settings
 
 class ShopifySyncService:
     def __init__(self):
-        """Initialize the Shopify sync service with environment variables"""
-        self.shopify_url = os.getenv("SHOPIFY_GRAPHQL_URL")
-        self.access_token = os.getenv("SHOPIFY_ACCESS_TOKEN")
+        self.shopify_url = settings.SHOPIFY_GRAPHQL_URL
+        self.access_token = settings.SHOPIFY_ACCESS_TOKEN
         
         if not self.shopify_url or not self.access_token:
             raise ValueError("Missing Shopify credentials in environment variables")
@@ -25,19 +21,13 @@ class ShopifySyncService:
             "X-Shopify-Access-Token": self.access_token,
         }
 
-        # MongoDB connection using environment variables
-        mongo_uri = os.getenv("MONGO_URI", "mongodb://localhost:27017")
-        db_name = os.getenv("MONGO_DATABASE", "phoenix_products")
-        collection_name = os.getenv("MONGO_COLLECTION", "products")
-        
-        self.mongo_client = pymongo.MongoClient(mongo_uri)
-        self.db = self.mongo_client[db_name]
-        self.collection = self.db[collection_name]
+        self.mongo_client = pymongo.MongoClient(settings.MONGO_URI)
+        self.db = self.mongo_client[settings.MONGO_DATABASE]
+        self.collection = self.db[settings.MONGO_COLLECTION]
 
     def download_image_from_url(self, image_url: str) -> tuple[str, str]:
-        """Download image from URL with retry logic"""
         try:
-            print(f"⬇️  Downloading image: {image_url}")
+            print(f"Downloading image: {image_url}")
 
             user_agents = [
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -76,16 +66,13 @@ class ShopifySyncService:
                     else:
                         raise
 
-            # Get filename from URL
             parsed_url = urlparse(image_url)
             filename = os.path.basename(parsed_url.path)
             if not filename or "." not in filename:
                 filename = f"image_{int(time.time())}.jpg"
 
-            # Create temporary file
             temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{filename}")
 
-            # Download file content
             total_size = 0
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -93,15 +80,14 @@ class ShopifySyncService:
                     total_size += len(chunk)
 
             temp_file.close()
-            print(f"✅ Downloaded {total_size} bytes")
+            print(f"Downloaded {total_size} bytes")
             return temp_file.name, filename
 
         except Exception as e:
-            print(f"❌ Error downloading image: {str(e)}")
+            print(f"Error downloading image: {str(e)}")
             raise
 
     def create_staged_upload(self, filename: str, mime_type: str = "image/jpeg") -> Dict[str, Any]:
-        """Create staged upload URL for Shopify"""
         mutation = """
         mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
           stagedUploadsCreate(input: $input) {
@@ -146,7 +132,6 @@ class ShopifySyncService:
         return data["data"]["stagedUploadsCreate"]["stagedTargets"][0]
 
     def upload_image_to_shopify_s3(self, temp_file_path: str, filename: str) -> str:
-        """Upload image to Shopify S3"""
         try:
             target = self.create_staged_upload(filename)
             upload_url = target["url"]
@@ -159,7 +144,6 @@ class ShopifySyncService:
                     upload_url, data=params, files=files, timeout=60
                 )
 
-            # Clean up temp file
             try:
                 os.unlink(temp_file_path)
             except:
@@ -178,7 +162,6 @@ class ShopifySyncService:
             raise e
 
     def process_images(self, image_urls: List[str]) -> List[str]:
-        """Process list of image URLs"""
         if not image_urls:
             return []
 
@@ -188,15 +171,14 @@ class ShopifySyncService:
                 temp_file_path, filename = self.download_image_from_url(image_url)
                 resource_url = self.upload_image_to_shopify_s3(temp_file_path, filename)
                 resource_urls.append(resource_url)
-                time.sleep(1)  # Rate limiting
+                time.sleep(1)
             except Exception as e:
-                print(f"❌ Failed to process image {i+1}: {str(e)}")
+                print(f"Failed to process image {i+1}: {str(e)}")
                 continue
 
         return resource_urls
 
     def link_images_to_product(self, product_id: str, resource_urls: List[str], product_title: str = "") -> bool:
-        """Link uploaded images to Shopify product"""
         if not resource_urls:
             return True
 
@@ -254,11 +236,10 @@ class ShopifySyncService:
             return True
 
         except Exception as e:
-            print(f"❌ Error linking images: {str(e)}")
+            print(f"Error linking images: {str(e)}")
             return False
 
     def update_variant_with_sku(self, product_id: str, variants_data: List[Dict], mongo_doc: Dict[str, Any]) -> bool:
-        """Update variant with pricing and SKU"""
         try:
             if not variants_data:
                 return False
@@ -268,11 +249,6 @@ class ShopifySyncService:
 
             if not variant_id:
                 return False
-
-            # Get pricing from environment or use defaults
-            price = float(os.getenv("DEFAULT_PRICE", "179.00"))
-            compare_at_price = float(os.getenv("DEFAULT_COMPARE_PRICE", "224.00"))
-            cost_per_item = float(os.getenv("DEFAULT_COST", "95.00"))
 
             sku = mongo_doc.get("sku", "")
             if not sku:
@@ -294,8 +270,8 @@ class ShopifySyncService:
 
             variant_update = {
                 "id": variant_id,
-                "price": str(price),
-                "compareAtPrice": str(compare_at_price),
+                "price": str(settings.DEFAULT_PRICE),
+                "compareAtPrice": str(settings.DEFAULT_COMPARE_PRICE),
                 "taxable": True,
                 "inventoryPolicy": "DENY",
                 "inventoryItem": {"sku": str(sku)},
@@ -315,13 +291,11 @@ class ShopifySyncService:
             return True
 
         except Exception as e:
-            print(f"❌ Error updating variant: {str(e)}")
+            print(f"Error updating variant: {str(e)}")
             return False
 
     def create_shopify_product(self, mongo_doc: Dict[str, Any]) -> Optional[str]:
-        """Create product in Shopify from MongoDB document"""
         try:
-            # Format description
             description_html_parts = []
             if mongo_doc.get("description"):
                 description_html_parts.append("<h3>Product Description:</h3><ul>")
@@ -340,7 +314,6 @@ class ShopifySyncService:
                 description_html_parts.append("</ul>")
             description_html = "".join(description_html_parts)
 
-            # Generate tags
             tags = []
             if mongo_doc.get("category"):
                 tags.append(f"Category_{mongo_doc['category']}")
@@ -404,20 +377,17 @@ class ShopifySyncService:
 
             product_id = product.get("id")
 
-            # Update variant with SKU and pricing
             variants_data = product.get("variants", {}).get("edges", [])
             self.update_variant_with_sku(product_id, variants_data, mongo_doc)
 
             return product_id
 
         except Exception as e:
-            print(f"❌ Error creating product: {str(e)}")
+            print(f"Error creating product: {str(e)}")
             return None
 
     def sync_product_by_sku(self, sku: str) -> Dict[str, Any]:
-        """Sync a product to Shopify by SKU"""
         try:
-            # Find product in MongoDB
             mongo_doc = self.collection.find_one({"sku": sku})
             
             if not mongo_doc:
@@ -429,7 +399,6 @@ class ShopifySyncService:
 
             product_title = mongo_doc.get("title", "Untitled")
 
-            # Create product in Shopify
             product_id = self.create_shopify_product(mongo_doc)
             
             if not product_id:
@@ -439,7 +408,6 @@ class ShopifySyncService:
                     "message": "Could not create product in Shopify"
                 }
 
-            # Process images
             image_urls = mongo_doc.get("images", [])
             images_processed = 0
             
@@ -471,6 +439,5 @@ class ShopifySyncService:
             }
 
     def close_connection(self):
-        """Close MongoDB connection"""
         if hasattr(self, 'mongo_client'):
             self.mongo_client.close()

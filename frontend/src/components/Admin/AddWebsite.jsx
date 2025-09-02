@@ -22,7 +22,6 @@ const AddWebsite = ({ onWebsiteAdded }) => {
       [name]: value
     }));
     
-    // Clear error when user starts typing
     if (error) setError('');
   };
 
@@ -59,10 +58,7 @@ const AddWebsite = ({ onWebsiteAdded }) => {
         onWebsiteAdded(newWebsite);
       }
       
-      // Reset form
       setFormData({ name: '', url: '', description: '' });
-      
-      // Redirect after success
       setTimeout(() => {
         navigate('/admin/websites');
       }, 2000);

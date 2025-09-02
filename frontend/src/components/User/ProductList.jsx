@@ -25,14 +25,12 @@ const ProductList = ({
   const [selectedProducts, setSelectedProducts] = useState(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [bulkListingLoading, setBulkListingLoading] = useState(false);
-  const [layoutMode, setLayoutMode] = useState('card'); // 'card' or 'row'
+  const [layoutMode, setLayoutMode] = useState('card');
 
-  // Reset selection when products change
   useEffect(() => {
     setSelectedProducts(new Set());
   }, [products]);
 
-  // Load layout preference from localStorage
   useEffect(() => {
     const savedLayout = localStorage.getItem('productLayoutMode');
     if (savedLayout && (savedLayout === 'card' || savedLayout === 'row')) {
@@ -40,7 +38,6 @@ const ProductList = ({
     }
   }, []);
 
-  // Save layout preference
   const handleLayoutChange = (newLayout) => {
     setLayoutMode(newLayout);
     localStorage.setItem('productLayoutMode', newLayout);
@@ -61,10 +58,8 @@ const ProductList = ({
 
   const handleSelectAll = () => {
     if (selectedProducts.size === products.length) {
-      // Deselect all
       setSelectedProducts(new Set());
     } else {
-      // Select all
       const allProductKeys = new Set(products.map(p => p.id || p.sku));
       setSelectedProducts(allProductKeys);
     }
@@ -95,8 +90,6 @@ const ProductList = ({
       const result = await shopifyAPI.listMultipleProducts(skus);
       alert(`Successfully initiated listing for ${skus.length} products on Shopify!`);
       console.log('Bulk listing result:', result);
-      
-      // Reset selection after successful listing
       setSelectedProducts(new Set());
       setSelectMode(false);
     } catch (error) {
@@ -111,7 +104,6 @@ const ProductList = ({
   const toggleSelectMode = () => {
     setSelectMode(!selectMode);
     if (selectMode) {
-      // Clear selection when exiting select mode
       setSelectedProducts(new Set());
     }
   };

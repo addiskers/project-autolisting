@@ -6,7 +6,7 @@ import {
   Package, 
   Globe, 
   Plus, 
-  BarChart3,
+  ShoppingCart,
   Download,
   GitBranch,
   History
@@ -30,22 +30,19 @@ const Sidebar = () => {
       path: '/admin/add-website', 
       label: 'Add Website', 
       icon: <Plus size={18} /> 
-    },
+    }, 
     { 
       path: '/admin/history', 
       label: 'History', 
       icon: <History size={18} /> 
     },
-    { 
-      path: '/admin/gap', 
-      label: 'Gap Analysis', 
-      icon: <GitBranch size={18} /> 
-    },
-    { 
-      path: '/admin/analytics', 
-      label: 'Analytics', 
-      icon: <BarChart3 size={18} /> 
-    }
+    {
+    path: '/admin/listing-history', 
+    icon: <ShoppingCart size={18} />,
+    label: 'List History',
+  },
+  
+  
   ];
 
   const userNavItems = [

@@ -39,7 +39,6 @@ api.interceptors.response.use(
 // Auth API
 export const authAPI = {
   login: async (credentials) => {
-    // Simulate login - replace with real API call
     await new Promise(resolve => setTimeout(resolve, 1000));
     
     if (credentials.username === 'admin' && credentials.password === 'admin123') {
@@ -82,36 +81,24 @@ export const productsAPI = {
     return response.data;
   },
 
-  getCategories: async () => {
-    const response = await api.get('/api/products');
-    const products = response.data.products || [];
-    
-    // Extract unique categories
-    const categories = [...new Set(
-      products
-        .map(product => product.category)
-        .filter(category => category)
-    )];
-    
-    return categories.sort();
+  getCategories: async (params = {}) => {
+    const response = await api.get('/api/products/categories', { params });
+    return response.data.categories || [];
   }
 };
 
 // Delta/Gap Analysis API
 export const deltaAPI = {
-  // Get delta analysis for a specific vendor
   getDelta: async (vendor) => {
     const response = await api.get(`/api/delta/${vendor}`);
     return response.data;
   },
 
-  // Get available vendors for delta analysis
   getVendors: async () => {
     try {
       const response = await api.get('/api/vendors');
       return response.data.vendors || [];
     } catch (error) {
-      // Fallback to hardcoded vendors if endpoint doesn't exist
       return [
         { value: 'phoenix', label: 'Phoenix Tapware' },
         { value: 'hansgrohe', label: 'Hansgrohe' },
@@ -124,28 +111,43 @@ export const deltaAPI = {
 
 // Shopify Listing API
 export const shopifyAPI = {
-  // List single product by SKU
   listProduct: async (sku) => {
     const response = await api.post(`/api/list/${sku}`);
     return response.data;
   },
 
-  // List multiple products by SKUs
   listMultipleProducts: async (skus) => {
     const response = await api.post('/api/list/bulk', { skus });
     return response.data;
   },
 
-  // Get listing status
   getListingStatus: async (sku) => {
     const response = await api.get(`/api/list/status/${sku}`);
     return response.data;
   }
 };
 
-// UPDATED Scraping API with MongoDB-based status tracking and history
+// Listing History API - CORRECTED VERSION
+export const listingAPI = {
+  getListingHistory: async (params = {}) => {
+    const response = await api.get('/api/list/history', { params });
+    if (!response.data.success) {
+      throw new Error(response.data.error || response.data.message || 'Failed to get listing history');
+    }
+    return response.data;
+  },
+
+  getListingStats: async () => {
+    const response = await api.get('/api/list/stats');
+    if (!response.data.success) {
+      throw new Error(response.data.error || response.data.message || 'Failed to get listing stats');
+    }
+    return response.data.data;
+  }
+};
+
+// Scraping API with MongoDB-based status tracking and history
 export const scrapingAPI = {
-  // Start scraping for a specific vendor
   startScraping: async (vendor) => {
     if (!vendor) {
       throw new Error('Vendor is required for scraping');
@@ -155,19 +157,17 @@ export const scrapingAPI = {
     return response.data;
   },
 
-  // Fetch Shopify data for a vendor
   fetchShopifyData: async (vendor) => {
     if (!vendor) {
       throw new Error('Vendor is required for Shopify fetch');
     }
     
     const response = await api.post(`/api/myweb/${vendor}`, {
-      vendor: vendor.toUpperCase() // Backend expects uppercase vendor
+      vendor: vendor.toUpperCase()
     });
     return response.data;
   },
 
-  // Check if scraping is currently active for a vendor
   isScrapingActive: async (vendor) => {
     try {
       const response = await api.get(`/api/scrape/active/${vendor}`);
@@ -177,18 +177,15 @@ export const scrapingAPI = {
     }
   },
 
-  // Get last scrape information for a vendor (from MongoDB fetch collection)
   getLastScrapeInfo: async (vendor) => {
     try {
       const response = await api.get(`/api/scrape/info/${vendor}`);
       return response.data;
     } catch (error) {
-      // Return null if no info available
       return null;
     }
   },
 
-  // Get vendor status with both scraping and Shopify fetch info
   getVendorStatus: async (vendor) => {
     try {
       const response = await api.get(`/api/vendors/${vendor}/status`);
@@ -205,7 +202,6 @@ export const scrapingAPI = {
     }
   },
 
-  // NEW: Get fetch history for admin dashboard
   getFetchHistory: async (params = {}) => {
     try {
       const response = await api.get('/api/admin/history', { params });
@@ -215,7 +211,6 @@ export const scrapingAPI = {
     }
   },
 
-  // Legacy method for backward compatibility
   startScrapingLegacy: async () => {
     const response = await api.post('/api/scrape');
     return response.data;
@@ -266,7 +261,6 @@ export const websitesAPI = {
   },
 
   addWebsite: async (websiteData) => {
-    // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1500));
     
     return {
@@ -280,12 +274,10 @@ export const websitesAPI = {
   },
 
   updateWebsiteStatus: async (id, status) => {
-    // Simulate API call
     await new Promise(resolve => setTimeout(resolve, 1000));
     return { id, status };
   },
 
-  // Start scraping for a specific website
   startWebsiteScraping: async (websiteId) => {
     const websites = await websitesAPI.getWebsites();
     const website = websites.find(w => w.id === websiteId);
@@ -297,7 +289,6 @@ export const websitesAPI = {
     return scrapingAPI.startScraping(website.vendor);
   },
 
-  // Get scraping status for a website
   getWebsiteScrapeStatus: async (websiteId) => {
     const websites = await websitesAPI.getWebsites();
     const website = websites.find(w => w.id === websiteId);
@@ -320,13 +311,11 @@ export const healthAPI = {
 
 // Vendors API - centralized vendor management
 export const vendorsAPI = {
-  // Get all available vendors
   getVendors: async () => {
     try {
       const response = await api.get('/api/vendors');
       return response.data.vendors || [];
     } catch (error) {
-      // Fallback to hardcoded vendors
       return [
         { 
           value: 'phoenix', 
@@ -356,13 +345,11 @@ export const vendorsAPI = {
     }
   },
 
-  // Get vendor info by key
   getVendor: async (vendorKey) => {
     const vendors = await vendorsAPI.getVendors();
     return vendors.find(v => v.value === vendorKey);
   },
 
-  // Get vendor scraping status (from MongoDB fetch collection)
   getVendorStatus: async (vendorKey) => {
     try {
       return await scrapingAPI.getVendorStatus(vendorKey);
@@ -382,20 +369,16 @@ export const vendorsAPI = {
 // Error handler utility
 export const handleAPIError = (error) => {
   if (error.response) {
-    // Server responded with error status
     return error.response.data?.message || error.response.data?.detail || 'Server error occurred';
   } else if (error.request) {
-    // Network error
     return 'Network error - please check your connection';
   } else {
-    // Other error
     return error.message || 'An unexpected error occurred';
   }
 };
 
 // Utility functions for working with the new MongoDB-based system
 export const fetchUtils = {
-  // Get formatted last fetch dates
   getLastFetchDates: async (vendor) => {
     try {
       const info = await scrapingAPI.getLastScrapeInfo(vendor);
@@ -415,7 +398,6 @@ export const fetchUtils = {
     }
   },
 
-  // Check if any fetch operation is currently active
   isAnyFetchActive: async (vendor) => {
     try {
       const status = await scrapingAPI.getVendorStatus(vendor);
@@ -425,14 +407,12 @@ export const fetchUtils = {
     }
   },
 
-  // Format date for display
   formatDate: (date) => {
     if (!date) return null;
     if (typeof date === 'string') date = new Date(date);
     return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString();
   },
 
-  // Get fetch status with user-friendly messages
   getFetchStatusMessage: async (vendor) => {
     try {
       const status = await scrapingAPI.getVendorStatus(vendor);

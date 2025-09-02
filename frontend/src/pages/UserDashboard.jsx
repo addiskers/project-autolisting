@@ -12,7 +12,8 @@ import { Package, Download, Database } from 'lucide-react';
 const UserDashboard = () => {
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [selectedVendor, setSelectedVendor] = useState('');
+  const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [filters, setFilters] = useState({
     category: '',
@@ -26,43 +27,51 @@ const UserDashboard = () => {
     hasPrev: false
   });
 
-  // Load initial data
+  const vendors = [
+    { value: 'phoenix', label: 'Phoenix' },
+    { value: 'hansgrohe', label: 'Hansgrohe' },
+    { value: 'moen', label: 'Moen' },
+    { value: 'kohler', label: 'Kohler' }
+  ];
+
   useEffect(() => {
-    loadInitialData();
-  }, []);
-
-  // Load products when filters change
-  useEffect(() => {
-    loadProducts();
-  }, [filters]);
-
-  const loadInitialData = async () => {
-    try {
-      const [productsData, categoriesData] = await Promise.all([
-        productsAPI.getProducts({ limit: 12 }),
-        productsAPI.getCategories()
-      ]);
-
-      setProducts(productsData.products || []);
-      setCategories(categoriesData || []);
+    if (selectedVendor) {
+      loadProducts();
+    } else {
+      setProducts([]);
+      setCategories([]);
       setPagination({
-        total: productsData.total || 0,
-        hasNext: productsData.has_next || false,
-        hasPrev: productsData.has_prev || false
+        total: 0,
+        hasNext: false,
+        hasPrev: false
       });
+    }
+  }, [filters, selectedVendor]);
+
+  useEffect(() => {
+    if (selectedVendor) {
+      loadCategories();
+    }
+  }, [selectedVendor]);
+
+  const loadCategories = async () => {
+    if (!selectedVendor) return;
+    
+    try {
+      const categoriesData = await productsAPI.getCategories({ vendor: selectedVendor });
+      setCategories(categoriesData || []);
     } catch (error) {
-      console.error('Error loading initial data:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error loading categories:', error);
     }
   };
 
   const loadProducts = async () => {
-    if (searchLoading) return;
+    if (!selectedVendor || searchLoading) return;
     
     setSearchLoading(true);
     try {
       const params = {
+        vendor: selectedVendor,
         page: filters.page,
         limit: filters.limit
       };
@@ -80,9 +89,23 @@ const UserDashboard = () => {
       });
     } catch (error) {
       console.error('Error loading products:', error);
+      const errorMessage = handleAPIError(error);
+      alert(`Failed to load products: ${errorMessage}`);
     } finally {
       setSearchLoading(false);
     }
+  };
+
+  const handleVendorChange = (event) => {
+    const vendor = event.target.value;
+    setSelectedVendor(vendor);
+    
+    setFilters(prev => ({
+      ...prev,
+      category: '',
+      search: '',
+      page: 1
+    }));
   };
 
   const handleFilterChange = (newFilters) => {
@@ -101,7 +124,10 @@ const UserDashboard = () => {
   };
 
   const handleScrapeComplete = async () => {
-    await loadInitialData();
+    if (selectedVendor) {
+      await loadProducts();
+      await loadCategories();
+    }
   };
 
   return (
@@ -117,10 +143,13 @@ const UserDashboard = () => {
                 <ProductsPage
                   products={products}
                   categories={categories}
+                  selectedVendor={selectedVendor}
+                  vendors={vendors}
                   filters={filters}
                   pagination={pagination}
                   loading={loading}
                   searchLoading={searchLoading}
+                  onVendorChange={handleVendorChange}
                   onFilterChange={handleFilterChange}
                   onPageChange={handlePageChange}
                 />
@@ -148,15 +177,19 @@ const UserDashboard = () => {
 const ProductsPage = ({ 
   products, 
   categories, 
+  selectedVendor,
+  vendors,
   filters, 
   pagination, 
   loading, 
   searchLoading,
+  onVendorChange,
   onFilterChange, 
   onPageChange
 }) => {
   return (
     <div>
+      {/* Page Header */}
       <div style={{ 
         display: 'flex', 
         justifyContent: 'space-between', 
@@ -168,26 +201,78 @@ const ProductsPage = ({
             Products
           </h1>
           <p style={{ color: 'var(--gray-600)' }}>
-            Browse, search, and list products on Shopify
+            {selectedVendor 
+              ? `Browse and manage ${vendors.find(v => v.value === selectedVendor)?.label || selectedVendor} products`
+              : 'Select a vendor to browse and manage products'
+            }
           </p>
         </div>
       </div>
 
-      <CategoryFilter
-        categories={categories}
-        selectedCategory={filters.category}
-        searchQuery={filters.search}
-        onFilterChange={onFilterChange}
-        loading={searchLoading}
-      />
+      {/* Vendor Selector */}
+      <div className="card" style={{ marginBottom: '24px' }}>
+        <div className="card-body" style={{ textAlign: 'center', padding: '32px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px' }}>
+            Select Vendor
+          </h3>
+          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+            <select
+              value={selectedVendor}
+              onChange={onVendorChange}
+              className="form-select"
+              style={{
+                width: '100%',
+                padding: '12px 16px',
+                fontSize: '16px',
+                border: '2px solid var(--primary-blue)',
+                borderRadius: '8px',
+                backgroundColor: 'white'
+              }}
+            >
+              <option value="">Choose a vendor...</option>
+              {vendors.map(vendor => (
+                <option key={vendor.value} value={vendor.value}>
+                  {vendor.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
 
-      <ProductList
-        products={products}
-        loading={loading || searchLoading}
-        pagination={pagination}
-        currentPage={filters.page}
-        onPageChange={onPageChange}
-      />
+      {/* Products Content */}
+      {selectedVendor ? (
+        <>
+          <CategoryFilter
+            categories={categories}
+            selectedCategory={filters.category}
+            searchQuery={filters.search}
+            onFilterChange={onFilterChange}
+            loading={searchLoading}
+          />
+
+          <ProductList
+            products={products}
+            loading={loading || searchLoading}
+            pagination={pagination}
+            currentPage={filters.page}
+            onPageChange={onPageChange}
+          />
+        </>
+      ) : (
+        // Empty State when no vendor is selected
+        <div className="card">
+          <div className="card-body" style={{ textAlign: 'center', padding: '48px' }}>
+            <Package size={48} style={{ color: 'var(--gray-300)', marginBottom: '16px' }} />
+            <h3 style={{ marginBottom: '8px', color: 'var(--gray-600)' }}>
+              Select a vendor to view products
+            </h3>
+            <p style={{ color: 'var(--gray-500)' }}>
+              Choose a vendor from the dropdown above to browse and manage their products
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
