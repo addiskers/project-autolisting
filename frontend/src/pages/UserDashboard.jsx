@@ -6,6 +6,7 @@ import ProductList from '../components/User/ProductList';
 import CategoryFilter from '../components/User/CategoryFilter';
 import ScrapeButton from '../components/User/ScrapeButton';
 import GapAnalysis from '../components/Shared/GapAnalysis';
+import VendorHistory from '../components/User/VendorHistory';
 import { productsAPI, scrapingAPI, handleAPIError } from '../services/api';
 import { Package, Download, Database } from 'lucide-react';
 
@@ -165,6 +166,12 @@ const UserDashboard = () => {
             <Route
               path="/scrape"
               element={<ScrapePage onScrapeComplete={handleScrapeComplete} />}
+            />
+
+            {/* Vendor History Page */}
+            <Route
+              path="/vendor-history"
+              element={<VendorHistory />}
             />
           </Routes>
         </main>

@@ -22,7 +22,24 @@
   --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
   --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
+.layout-toggle-btn {
+  padding: 8px 12px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s ease;
+}
 
+.layout-toggle-btn:hover {
+  background-color: var(--gray-50);
+}
+
+.layout-toggle-btn.active {
+  background-color: var(--primary-blue);
+  color: white;
+}
 * {
   margin: 0;
   padding: 0;

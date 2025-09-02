@@ -9,7 +9,8 @@ import {
   ShoppingCart,
   Download,
   GitBranch,
-  History
+  History,
+  Clock
 } from 'lucide-react';
 
 const Sidebar = () => {
@@ -37,12 +38,10 @@ const Sidebar = () => {
       icon: <History size={18} /> 
     },
     {
-    path: '/admin/listing-history', 
-    icon: <ShoppingCart size={18} />,
-    label: 'List History',
-  },
-  
-  
+      path: '/admin/listing-history', 
+      icon: <ShoppingCart size={18} />,
+      label: 'List History',
+    },
   ];
 
   const userNavItems = [
@@ -60,6 +59,11 @@ const Sidebar = () => {
       path: '/dashboard/scrape', 
       label: 'Fetch Data', 
       icon: <Download size={18} /> 
+    },
+    { 
+      path: '/dashboard/vendor-history', 
+      label: 'Vendor History', 
+      icon: <Clock size={18} /> 
     }
   ];
 

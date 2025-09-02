@@ -1,11 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-
 from .core.config import settings
 from .core.database import get_mongo_client
 from .services.fetch_status import FetchStatus
-from .routes import health, products, scraping, shopify, vendors, admin
+from .routes import health, products, scraping, shopify, vendors, admin,vendor_history
 
 load_dotenv()
 
@@ -16,7 +15,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -26,7 +25,6 @@ app.add_middleware(
 client = get_mongo_client()
 fetch_status = FetchStatus(client)
 
-# Make services available to routes
 app.state.client = client
 app.state.fetch_status = fetch_status
 
@@ -37,6 +35,7 @@ app.include_router(scraping.router, prefix="/api", tags=["Scraping"])
 app.include_router(shopify.router, prefix="/api", tags=["Shopify"])
 app.include_router(vendors.router, prefix="/api", tags=["Vendors"])
 app.include_router(admin.router, prefix="/api", tags=["Admin"])
+app.include_router(vendor_history.router, prefix="/api", tags=["Vendor History"])
 
 @app.get("/")
 async def root():

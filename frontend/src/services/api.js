@@ -447,5 +447,52 @@ export const fetchUtils = {
     }
   }
 };
+// Vendor History API
+export const vendorHistoryAPI = {
+  getVendorHistory: async (vendor, params = {}) => {
+    try {
+      if (!vendor) {
+        throw new Error('Vendor parameter is required');
+      }
 
+      const queryParams = new URLSearchParams();
+      
+      // Add pagination parameters
+      if (params.page) queryParams.append('page', params.page.toString());
+      if (params.limit) queryParams.append('limit', params.limit.toString());
+      
+      // Add filter parameters
+      if (params.status_filter && params.status_filter !== 'ALL') {
+        queryParams.append('status_filter', params.status_filter);
+      }
+      if (params.search && params.search.trim()) {
+        queryParams.append('search', params.search.trim());
+      }
+
+      const url = `/api/vendor-web/${vendor}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      
+      const response = await api.get(url);
+      
+      if (!response.data.success) {
+        throw new Error(response.data.message || response.data.detail || 'Failed to get vendor history');
+      }
+      
+      return response.data;
+      
+    } catch (error) {
+      console.error('Error in getVendorHistory:', error);
+      throw error;
+    }
+  },
+
+  testVendorHistoryAPI: async () => {
+    try {
+      const response = await api.get('/api/vendor-web-test');
+      return response.data;
+    } catch (error) {
+      console.error('Error in testVendorHistoryAPI:', error);
+      throw error;
+    }
+  }
+};
 export default api;
