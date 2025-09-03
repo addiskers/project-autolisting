@@ -485,14 +485,5 @@ export const vendorHistoryAPI = {
     }
   },
 
-  testVendorHistoryAPI: async () => {
-    try {
-      const response = await api.get('/api/vendor-web-test');
-      return response.data;
-    } catch (error) {
-      console.error('Error in testVendorHistoryAPI:', error);
-      throw error;
-    }
-  }
 };
 export default api;

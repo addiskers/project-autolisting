@@ -15,6 +15,7 @@ const ScrapeButton = ({
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
   const [lastScrapeDate, setLastScrapeDate] = useState(null);
+  const [statusCheckInterval, setStatusCheckInterval] = useState(null);
 
   // Check for existing scraping status on mount
   useEffect(() => {
@@ -23,30 +24,78 @@ const ScrapeButton = ({
     }
   }, [vendor]);
 
+  // Cleanup interval on unmount
+  useEffect(() => {
+    return () => {
+      if (statusCheckInterval) {
+        clearInterval(statusCheckInterval);
+      }
+    };
+  }, [statusCheckInterval]);
+
   const checkExistingStatus = async () => {
     try {
-      const statusKey = `${type}_${vendor}_status`;
       const dateKey = `${type}_${vendor}_lastScrape`;
-      
-      // Check localStorage for ongoing scraping
-      const savedStatus = localStorage.getItem(statusKey);
       const savedDate = localStorage.getItem(dateKey);
       
       if (savedDate) {
         setLastScrapeDate(new Date(savedDate));
       }
       
-      if (savedStatus === 'running') {
-        setIsScrapingActive(true);
-        setScrapeStatus('running');
-        setProgress(type === 'shopify' 
-          ? 'Fetching products from Shopify...' 
-          : 'Scraping in progress...'
-        );
+      // Check if operation is currently active on backend
+      if (type === 'scrape') {
+        const isActive = await scrapingAPI.isScrapingActive(vendor);
+        if (isActive) {
+          setIsScrapingActive(true);
+          setScrapeStatus('running');
+          setProgress('Scraping in progress...');
+          startStatusPolling();
+        }
+      } else if (type === 'shopify') {
+        const status = await scrapingAPI.getVendorStatus(vendor);
+        if (status.isShopifyActive) {
+          setIsScrapingActive(true);
+          setScrapeStatus('running');
+          setProgress('Fetching products from Shopify...');
+          startStatusPolling();
+        }
       }
     } catch (error) {
       console.error('Error checking existing status:', error);
     }
+  };
+
+  const startStatusPolling = () => {
+    // Clear any existing interval
+    if (statusCheckInterval) {
+      clearInterval(statusCheckInterval);
+    }
+
+    // Poll every 10 seconds to check if operation is complete
+    const interval = setInterval(async () => {
+      try {
+        let isStillActive = false;
+        
+        if (type === 'scrape') {
+          isStillActive = await scrapingAPI.isScrapingActive(vendor);
+        } else if (type === 'shopify') {
+          const status = await scrapingAPI.getVendorStatus(vendor);
+          isStillActive = status.isShopifyActive;
+        }
+        
+        if (!isStillActive) {
+          // Operation completed
+          clearInterval(interval);
+          setStatusCheckInterval(null);
+          completeProcess();
+        }
+      } catch (error) {
+        console.error('Error checking operation status:', error);
+        // Continue polling even if there's an error
+      }
+    }, 10000); // Check every 10 seconds
+    
+    setStatusCheckInterval(interval);
   };
 
   const handleStartScraping = async () => {
@@ -60,10 +109,6 @@ const ScrapeButton = ({
     setScrapeStatus('starting');
     setProgress(type === 'shopify' ? 'Initializing Shopify fetch...' : 'Initializing scraping process...');
 
-    // Save status to localStorage
-    const statusKey = `${type}_${vendor}_status`;
-    localStorage.setItem(statusKey, 'starting');
-
     try {
       let response;
       if (type === 'shopify') {
@@ -74,60 +119,14 @@ const ScrapeButton = ({
       
       if (response.success) {
         setScrapeStatus('running');
-        localStorage.setItem(statusKey, 'running');
+        setProgress(type === 'shopify' 
+          ? 'Fetching products from Shopify... This may take a few minutes.' 
+          : 'Scraping in progress... This may take a few minutes.'
+        );
         
-        if (type === 'shopify') {
-          setProgress('Fetching products from Shopify... This may take a few minutes.');
-          
-          // Simulate Shopify fetch progress
-          const progressMessages = [
-            'Connecting to Shopify...',
-            'Fetching product pages...',
-            'Processing product data...',
-            'Saving products to database...',
-            'Finalizing data sync...'
-          ];
-          
-          let messageIndex = 0;
-          const progressInterval = setInterval(() => {
-            if (messageIndex < progressMessages.length) {
-              setProgress(progressMessages[messageIndex]);
-              messageIndex++;
-            }
-          }, 10000); // Update every 10 seconds
-          
-          // Simulate completion after 1 minute for Shopify
-          setTimeout(() => {
-            clearInterval(progressInterval);
-            completeProcess();
-          }, 60000);
-          
-        } else {
-          setProgress('Scraping in progress... This may take a few minutes.');
-          
-          // Simulate scraping progress
-          const progressMessages = [
-            'Connecting to website...',
-            'Fetching product pages...',
-            'Extracting product data...',
-            'Processing and saving products...',
-            'Finalizing data...'
-          ];
-          
-          let messageIndex = 0;
-          const progressInterval = setInterval(() => {
-            if (messageIndex < progressMessages.length) {
-              setProgress(progressMessages[messageIndex]);
-              messageIndex++;
-            }
-          }, 15000); // Update every 15 seconds
-          
-          // Simulate completion after 2 minutes for scraping
-          setTimeout(() => {
-            clearInterval(progressInterval);
-            completeProcess();
-          }, 120000);
-        }
+        // Start polling for completion
+        startStatusPolling();
+        
       } else {
         throw new Error(response.error || 'Process failed to start');
       }
@@ -137,12 +136,10 @@ const ScrapeButton = ({
       setScrapeStatus('error');
       setIsScrapingActive(false);
       setProgress('');
-      localStorage.removeItem(statusKey);
     }
   };
 
   const completeProcess = () => {
-    const statusKey = `${type}_${vendor}_status`;
     const dateKey = `${type}_${vendor}_lastScrape`;
     const now = new Date();
     
@@ -152,14 +149,13 @@ const ScrapeButton = ({
     setLastScrapeDate(now);
     
     // Save completion status
-    localStorage.removeItem(statusKey);
     localStorage.setItem(dateKey, now.toISOString());
     
     if (onComplete) {
       onComplete();
     }
     
-    // Reset after showing success
+    // Reset after showing success message
     setTimeout(() => {
       setScrapeStatus(null);
       setProgress('');

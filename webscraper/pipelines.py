@@ -120,7 +120,7 @@ class DeltaMongoDBPipeline:
         item = adapter.asdict()
         
         item['scraped_at'] = datetime.now(UTC)
-        item['manufacturer'] = 'Phoenix Tapware'
+        item['manufacturer'] = 'Phoenix'
         item['seen_in_session'] = True
         item['last_seen_session'] = self.session_id
         
