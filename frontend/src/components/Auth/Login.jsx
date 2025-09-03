@@ -14,7 +14,6 @@ const Login = () => {
   const { login, error, clearError, isAuthenticated, user } = useAuth();
   const navigate = useNavigate();
 
-  // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
       if (user?.role === 'admin') {
@@ -25,7 +24,6 @@ const Login = () => {
     }
   }, [isAuthenticated, user, navigate]);
 
-  // Clear errors when component unmounts or credentials change
   useEffect(() => {
     return () => clearError();
   }, [clearError]);
@@ -44,7 +42,6 @@ const Login = () => {
       [name]: value
     }));
     
-    // Clear error when user starts typing
     if (error) {
       clearError();
     }
@@ -61,9 +58,7 @@ const Login = () => {
     
     try {
       await login(credentials);
-      // Navigation will happen automatically via useEffect
     } catch (err) {
-      // Error is handled by AuthContext
     } finally {
       setIsLoading(false);
     }
@@ -89,7 +84,7 @@ const Login = () => {
     <div className="login-container">
       <div className="login-card">
         <div className="login-title">
-          Prodcut Management  Dashboard
+          Product Management Dashboard
         </div>
         
         {error && (

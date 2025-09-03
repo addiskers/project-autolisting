@@ -203,7 +203,7 @@ const GapAnalysis = () => {
           Gap Analysis
         </h1>
         <p className="page-subtitle">
-          Find products that exist in scraped data but are missing from Shopify
+          Find products that exist in fetched data but are missing from Shopify
         </p>
       </div>
 
@@ -247,7 +247,7 @@ const GapAnalysis = () => {
                   {deltaData.data?.total_scraped?.toLocaleString() || 0}
                 </h3>
                 <p className="summary-label">
-                  Scraped Products
+                  Fetched Vendor's Products
                 </p>
               </div>
             </div>
@@ -439,7 +439,7 @@ const GapAnalysis = () => {
                   No gap found!
                 </h3>
                 <p className="empty-state-text">
-                  All scraped products for {selectedVendor} are already in Shopify, or no products match your filters.
+                  All fetched products for {selectedVendor} are already in Shopify, or no products match your filters.
                 </p>
               </div>
             </div>
@@ -456,7 +456,7 @@ const GapAnalysis = () => {
               Select a vendor to begin
             </h3>
             <p className="empty-state-text">
-              Choose a vendor from the dropdown above to analyze the gap between scraped and Shopify products
+              Choose a vendor from the dropdown above to analyze the gap between fetched and Shopify products
             </p>
           </div>
         </div>

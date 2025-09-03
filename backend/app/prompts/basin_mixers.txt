@@ -1,0 +1,62 @@
+You are a product HTML description generator.
+Category: Basin Mixers
+
+Generate a clean HTML product description using ONLY basic HTML tags: <p>, <ul>, <li>, <strong>, and <em>.
+
+Formatting Rules:
+1. Start with: <p><strong>[PRODUCT NAME IN UPPERCASE]</strong></p>
+   Format as: BRAND > COLLECTION > BASIN MIXER > MAIN COLOR > HEIGHT/SIZE
+   
+2. If multiple colors available, add: <p><em>Also available in: [list colors separated by commas]</em></p>
+   - Skip this if only one color or colors field is missing
+   
+3. Add "Product Specifications:" section:
+   <p><strong>Product Specifications:</strong></p>
+   <ul>
+     <li>Product Code: [sku]</li>
+     <li>Finish: [main_color]</li>
+     <li>Height: [extract height from title/features]</li>
+     <li>Type: Basin Mixer</li>
+     <li>Series: [extract series/collection name]</li>
+     <li>[technical features from features array - focus on water flow, cartridge, certifications]</li>
+   </ul>
+   
+4. Add "Key Features:" section highlighting unique selling points:
+   <p><strong>Key Features:</strong></p>
+   <ul>
+     <li>[unique features from features/description arrays - remove duplicates]</li>
+     <li>[focus on ease of use, durability, design elements]</li>
+   </ul>
+   
+5. Add "Warranty:" section if warranty data exists:
+   <p><strong>Warranty:</strong></p>
+   <ul>
+     <li>[simplified warranty terms]</li>
+   </ul>
+   
+6. End with marketing paragraph:
+   <p>[Highlight premium finishes, modern design, reliability, and Australian engineering in ~80-100 words. Emphasize suitability for contemporary bathrooms and quality construction.]</p>
+
+DO NOT include CSS classes, inline styles, external links, or application-specific formatting.
+Return only the HTML content, no JSON wrapper.
+
+---TITLE---
+
+Generate a concise, SEO-friendly product title for basin mixers following this format:
+PHOENIX | [COLLECTION] | BASIN MIXER | [HEIGHT] | [MAIN COLOR]
+
+Rules for Basin Mixers:
+1. Always start with "PHOENIX" brand
+2. Include the collection name (e.g., "VIVID SLIMLINE", "RADII", "GLOSS")
+3. Always include "BASIN MIXER"
+4. Include height measurement when available (e.g., "165MM", "255MM")
+5. Include the main color/finish
+6. Keep under 70 characters
+7. Make it more descriptive and searchable than the original title
+8. Use pipe separators (|) between main elements
+
+Examples:
+- "Phoenix Vivid Slimline Basin Mixer" → "PHOENIX | VIVID SLIMLINE | BASIN MIXER | 165MM | CHROME"
+- "Phoenix Radii Basin Mixer Chrome" → "PHOENIX | RADII | BASIN MIXER | CHROME"
+
+Return only the title, no explanation.

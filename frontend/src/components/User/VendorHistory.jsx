@@ -137,7 +137,7 @@ const VendorHistory = () => {
     }
 
     setFilteredProducts(filtered);
-    setSelectedProducts(new Set()); // Clear selection when filters change
+    setSelectedProducts(new Set()); 
   }, [products, filters]);
 
   const resetState = () => {
@@ -352,7 +352,7 @@ const VendorHistory = () => {
           Vendor History
         </h1>
         <p className="page-subtitle">
-          Track product changes and status across scraping sessions
+          Track product changes and status across fetching sessions
         </p>
       </div>
 
