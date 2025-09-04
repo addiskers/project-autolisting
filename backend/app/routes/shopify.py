@@ -54,13 +54,23 @@ async def get_delta_products(vendor: str, request: Request):
                     "main_color": 1,
                     "features": 1,
                     "warranty": 1,
-                    "url": 1
+                    "url": 1,
+                    "listed_on_shopify": 1,
+                    "shopify_product_id": 1,
+                    "listed_at": 1
                 }
             ))
             
             for product in scraped_products:
                 product["id"] = str(product["_id"])
                 del product["_id"]
+                # Ensure listing status fields exist
+                if "listed_on_shopify" not in product:
+                    product["listed_on_shopify"] = False
+                if "shopify_product_id" not in product:
+                    product["shopify_product_id"] = None
+                if "listed_at" not in product:
+                    product["listed_at"] = None
             
             return {
                 "success": True,
@@ -91,7 +101,10 @@ async def get_delta_products(vendor: str, request: Request):
                 "warranty": 1,
                 "url": 1,
                 "colors": 1,
-                "breadcrumbs": 1
+                "breadcrumbs": 1,
+                "listed_on_shopify": 1,
+                "shopify_product_id": 1,
+                "listed_at": 1
             }
         ))
         
@@ -106,6 +119,13 @@ async def get_delta_products(vendor: str, request: Request):
                     scraped_skus.add(sku)
                     product["id"] = str(product["_id"])
                     del product["_id"]
+                    # Ensure listing status fields exist
+                    if "listed_on_shopify" not in product:
+                        product["listed_on_shopify"] = False
+                    if "shopify_product_id" not in product:
+                        product["shopify_product_id"] = None
+                    if "listed_at" not in product:
+                        product["listed_at"] = None
                     scraped_sku_to_product[sku] = product
         
         shopify_products = list(shopify_collection.find(
@@ -263,6 +283,96 @@ async def fetch_shopify_products_for_vendor(website_name: str, request_body: Sho
             detail=f"Unexpected error during fetch: {str(e)}"
         )
 
+@router.get("/list/status/{sku}")
+async def check_product_listing_status(sku: str):
+    """Check if a product is already listed on Shopify"""
+    try:
+        if not sku or len(sku.strip()) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="SKU parameter is required and cannot be empty"
+            )
+        
+        sku = sku.strip()
+        
+        try:
+            shopify_service = ShopifySyncService()
+        except ValueError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Shopify configuration error: {str(e)}"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to initialize Shopify service: {str(e)}"
+            )
+        
+        try:
+            status = shopify_service.check_product_listing_status(sku)
+            return {
+                "success": True,
+                "data": status
+            }
+        finally:
+            shopify_service.close_connection()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking listing status: {str(e)}"
+        )
+
+@router.post("/list/status/bulk")
+async def check_multiple_products_listing_status(request_body: BulkListRequest):
+    """Check listing status for multiple products"""
+    try:
+        if not request_body.skus or len(request_body.skus) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one SKU is required"
+            )
+        
+        unique_skus = list(set(sku.strip() for sku in request_body.skus if sku.strip()))
+        
+        if len(unique_skus) == 0:
+            raise HTTPException(
+                status_code=400,
+                detail="No valid SKUs provided"
+            )
+        
+        try:
+            shopify_service = ShopifySyncService()
+        except ValueError as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Shopify configuration error: {str(e)}"
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to initialize Shopify service: {str(e)}"
+            )
+        
+        try:
+            status_map = shopify_service.get_multiple_listing_status(unique_skus)
+            return {
+                "success": True,
+                "data": status_map
+            }
+        finally:
+            shopify_service.close_connection()
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error checking multiple listing statuses: {str(e)}"
+        )
+
 @router.post("/list/bulk")
 async def sync_multiple_products_to_shopify(request_body: BulkListRequest, request: Request):
     try:
@@ -293,7 +403,7 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
         
         existing_products = list(collection.find(
             {"sku": {"$in": unique_skus}},
-            {"sku": 1, "title": 1, "manufacturer": 1}
+            {"sku": 1, "title": 1, "manufacturer": 1, "listed_on_shopify": 1, "shopify_product_id": 1}
         ))
         
         existing_skus = {product["sku"]: product for product in existing_products}
@@ -324,6 +434,7 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
         results = []
         successful_syncs = 0
         failed_syncs = 0
+        already_listed = 0
         sku_data = []
         
         vendor = "unknown"
@@ -339,34 +450,51 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
                     "vendor": product_info.get("manufacturer", "Unknown"),
                     "success": False,
                     "error": None,
-                    "shopify_product_id": None
+                    "shopify_product_id": None,
+                    "already_listed": product_info.get("listed_on_shopify", False)
                 }
                 
                 try:
                     print(f"Processing product {i+1}/{len(existing_skus)}: {sku}")
-                    result = shopify_service.sync_product_by_sku(sku)
                     
-                    if result["success"]:
-                        successful_syncs += 1
-                        sku_record["success"] = True
-                        sku_record["shopify_product_id"] = result["data"]["shopify_product_id"]
-                        
-                        results.append({
-                            "sku": sku,
-                            "success": True,
-                            "message": "Product synced successfully",
-                            "shopify_product_id": result["data"]["shopify_product_id"]
-                        })
-                    else:
-                        failed_syncs += 1
-                        sku_record["error"] = result.get("error", "Unknown error")
+                    # Check if already listed and handle accordingly
+                    if product_info.get("listed_on_shopify", False):
+                        already_listed += 1
+                        sku_record["already_listed"] = True
+                        sku_record["shopify_product_id"] = product_info.get("shopify_product_id")
                         
                         results.append({
                             "sku": sku,
                             "success": False,
-                            "error": result.get("error", "Unknown error"),
-                            "message": result.get("message", "Sync failed")
+                            "already_listed": True,
+                            "message": "Product is already listed on Shopify",
+                            "shopify_product_id": product_info.get("shopify_product_id")
                         })
+                    else:
+                        # Proceed with listing
+                        result = shopify_service.sync_product_by_sku(sku, force_relist=getattr(request_body, 'force_relist', False))
+                        
+                        if result["success"]:
+                            successful_syncs += 1
+                            sku_record["success"] = True
+                            sku_record["shopify_product_id"] = result["data"]["shopify_product_id"]
+                            
+                            results.append({
+                                "sku": sku,
+                                "success": True,
+                                "message": "Product synced successfully",
+                                "shopify_product_id": result["data"]["shopify_product_id"]
+                            })
+                        else:
+                            failed_syncs += 1
+                            sku_record["error"] = result.get("error", "Unknown error")
+                            
+                            results.append({
+                                "sku": sku,
+                                "success": False,
+                                "error": result.get("error", "Unknown error"),
+                                "message": result.get("message", "Sync failed")
+                            })
                     
                     if i < len(existing_skus) - 1: 
                         time.sleep(2)
@@ -404,12 +532,13 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
         
         return {
             "success": overall_success,
-            "message": f"Bulk sync completed: {successful_syncs} successful, {failed_syncs} failed",
+            "message": f"Bulk sync completed: {successful_syncs} successful, {failed_syncs} failed, {already_listed} already listed",
             "summary": {
                 "total_requested": len(unique_skus),
                 "total_processed": len(existing_skus),
                 "successful": successful_syncs,
                 "failed": failed_syncs,
+                "already_listed": already_listed,
                 "success_rate": f"{(successful_syncs / len(existing_skus) * 100):.1f}%" if existing_skus else "0%"
             },
             "results": results
@@ -435,6 +564,7 @@ async def sync_product_to_shopify(sku: str, request: Request):
             )
         
         sku = sku.strip()
+        force_relist = request.headers.get('X-Force-Relist', 'false').lower() == 'true'
         
         collection = get_collection()
         fetch_status = request.app.state.fetch_status
@@ -468,11 +598,12 @@ async def sync_product_to_shopify(sku: str, request: Request):
             "vendor": product.get("manufacturer", "Unknown"),
             "success": False,
             "error": None,
-            "shopify_product_id": None
+            "shopify_product_id": None,
+            "already_listed": product.get("listed_on_shopify", False)
         }
         
         try:
-            result = shopify_service.sync_product_by_sku(sku)
+            result = shopify_service.sync_product_by_sku(sku, force_relist=force_relist)
             
             if result["success"]:
                 sku_record["success"] = True
@@ -502,6 +633,16 @@ async def sync_product_to_shopify(sku: str, request: Request):
                 }
             else:
                 sku_record["error"] = result.get("message", "Unknown error")
+                
+                # Handle already listed case
+                if result.get("already_listed"):
+                    return {
+                        "success": False,
+                        "already_listed": True,
+                        "message": result.get("message", "Product is already listed"),
+                        "shopify_product_id": result.get("shopify_product_id"),
+                        "listed_at": result.get("listed_at")
+                    }
                 
                 try:
                     fetch_status.save_listing_operation(

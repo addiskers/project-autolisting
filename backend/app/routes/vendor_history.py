@@ -19,7 +19,6 @@ async def get_vendor_history(
     Status options: NEW, UPDATED, UNCHANGED, DELETED, or ALL
     """
     try:
-        # Validate vendor parameter
         if not vendor or len(vendor.strip()) == 0:
             raise HTTPException(
                 status_code=400,
@@ -28,18 +27,13 @@ async def get_vendor_history(
         
         vendor = vendor.strip().lower()
         
-        # Get the collection
         collection = get_collection()
         
-        # Build base query for vendor - match against manufacturer field
         base_query = {
             "manufacturer": {"$regex": f".*{vendor}.*", "$options": "i"}
         }
-        
-        # Build main query
         query = base_query.copy()
         
-        # Add status filter if provided and not 'ALL'
         if status_filter and status_filter.upper() != 'ALL':
             valid_statuses = ['NEW', 'UPDATED', 'UNCHANGED', 'DELETED']
             if status_filter.upper() in valid_statuses:
@@ -50,7 +44,6 @@ async def get_vendor_history(
                     detail=f"Invalid status filter. Must be one of: {', '.join(valid_statuses + ['ALL'])}"
                 )
         
-        # Add search filter if provided
         if search and search.strip():
             search_regex = {"$regex": search.strip(), "$options": "i"}
             search_conditions = [
@@ -59,7 +52,6 @@ async def get_vendor_history(
                 {"category": search_regex}
             ]
             
-            # Combine with existing query
             query = {
                 "$and": [
                     query,
@@ -67,10 +59,8 @@ async def get_vendor_history(
                 ]
             }
         
-        # Get total count for current query
         total = collection.count_documents(query)
         
-        # Get status counts for all products from this vendor (for tabs)
         try:
             status_pipeline = [
                 {"$match": base_query},
@@ -107,7 +97,6 @@ async def get_vendor_history(
                 "ALL": total
             }
         
-        # Validate and fix pagination parameters
         if page < 1:
             page = 1
         if limit < 1 or limit > 100:
@@ -116,9 +105,7 @@ async def get_vendor_history(
         skip = (page - 1) * limit
         total_pages = max(1, (total + limit - 1) // limit)
         
-        # Get paginated products with proper sorting
         try:
-            # Sort by status priority, then by last_updated
             status_priority = {
                 "NEW": 1,
                 "UPDATED": 2,
@@ -132,11 +119,9 @@ async def get_vendor_history(
             
             products = []
             for doc in cursor:
-                # Convert ObjectId to string
                 doc["id"] = str(doc["_id"])
                 del doc["_id"]
                 
-                # Format dates to ISO strings
                 date_fields = ["last_updated", "first_seen", "last_seen", "scraped_at", "deleted_at"]
                 for field in date_fields:
                     if doc.get(field):
@@ -144,9 +129,8 @@ async def get_vendor_history(
                             if hasattr(doc[field], 'isoformat'):
                                 doc[field] = doc[field].isoformat()
                         except (AttributeError, ValueError):
-                            pass  # Keep original value if conversion fails
+                            pass  
                 
-                # Ensure status_flag exists
                 if not doc.get("status_flag"):
                     doc["status_flag"] = "UNKNOWN"
                 
@@ -156,7 +140,6 @@ async def get_vendor_history(
             print(f"Error querying products: {e}")
             products = []
         
-        # Build response
         response_data = {
             "success": True,
             "data": {
@@ -190,22 +173,3 @@ async def get_vendor_history(
             detail=f"Internal server error: {str(e)}"
         )
 
-# Health check endpoint for debugging
-@router.get("/vendor-web-test")
-async def test_vendor_history():
-    """Test endpoint to verify the route is working"""
-    try:
-        collection = get_collection()
-        count = collection.count_documents({})
-        return {
-            "success": True, 
-            "message": "Vendor history API is working",
-            "total_products": count,
-            "database": settings.MONGO_DATABASE,
-            "collection": settings.MONGO_COLLECTION
-        }
-    except Exception as e:
-        return {
-            "success": False,
-            "error": str(e)
-        }

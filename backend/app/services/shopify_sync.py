@@ -386,7 +386,53 @@ class ShopifySyncService:
             print(f"Error creating product: {str(e)}")
             return None
 
-    def sync_product_by_sku(self, sku: str) -> Dict[str, Any]:
+    def mark_product_as_listed(self, sku: str, shopify_product_id: str) -> bool:
+        """Mark a product as listed on Shopify in the database"""
+        try:
+            result = self.collection.update_one(
+                {"sku": sku},
+                {
+                    "$set": {
+                        "listed_on_shopify": True,
+                        "shopify_product_id": shopify_product_id,
+                        "listed_at": datetime.utcnow(),
+                        "last_listed": datetime.utcnow()
+                    }
+                }
+            )
+            return result.modified_count > 0
+        except Exception as e:
+            print(f"Error marking product as listed: {str(e)}")
+            return False
+
+    def check_product_listing_status(self, sku: str) -> Dict[str, Any]:
+        """Check if a product is already listed on Shopify"""
+        try:
+            product = self.collection.find_one({"sku": sku})
+            if not product:
+                return {
+                    "exists": False,
+                    "listed": False,
+                    "message": "Product not found"
+                }
+
+            return {
+                "exists": True,
+                "listed": product.get("listed_on_shopify", False),
+                "shopify_product_id": product.get("shopify_product_id"),
+                "listed_at": product.get("listed_at"),
+                "last_listed": product.get("last_listed"),
+                "title": product.get("title", "Unknown Product")
+            }
+        except Exception as e:
+            print(f"Error checking product listing status: {str(e)}")
+            return {
+                "exists": False,
+                "listed": False,
+                "message": f"Error checking status: {str(e)}"
+            }
+
+    def sync_product_by_sku(self, sku: str, force_relist: bool = False) -> Dict[str, Any]:
         try:
             mongo_doc = self.collection.find_one({"sku": sku})
             
@@ -396,6 +442,18 @@ class ShopifySyncService:
                     "error": "Product not found",
                     "message": f"No product found with SKU: {sku}"
                 }
+
+            if not force_relist:
+                listing_status = self.check_product_listing_status(sku)
+                if listing_status["listed"]:
+                    return {
+                        "success": False,
+                        "error": "Product already listed",
+                        "message": f"Product '{listing_status['title']}' is already listed on Shopify",
+                        "already_listed": True,
+                        "shopify_product_id": listing_status["shopify_product_id"],
+                        "listed_at": listing_status["listed_at"]
+                    }
 
             product_title = mongo_doc.get("title", "Untitled")
 
@@ -417,6 +475,9 @@ class ShopifySyncService:
                     if self.link_images_to_product(product_id, resource_urls, product_title):
                         images_processed = len(resource_urls)
 
+            # Mark product as listed in database
+            self.mark_product_as_listed(sku, product_id)
+
             return {
                 "success": True,
                 "message": "Product synced successfully",
@@ -427,7 +488,8 @@ class ShopifySyncService:
                     "images_total": len(image_urls),
                     "images_processed": images_processed,
                     "category": mongo_doc.get("category"),
-                    "manufacturer": mongo_doc.get("manufacturer")
+                    "manufacturer": mongo_doc.get("manufacturer"),
+                    "listed_at": datetime.utcnow().isoformat()
                 }
             }
 
@@ -437,6 +499,37 @@ class ShopifySyncService:
                 "error": "Sync failed",
                 "message": str(e)
             }
+
+    def get_multiple_listing_status(self, skus: List[str]) -> Dict[str, Dict[str, Any]]:
+        """Get listing status for multiple SKUs"""
+        try:
+            products = list(self.collection.find(
+                {"sku": {"$in": skus}},
+                {"sku": 1, "listed_on_shopify": 1, "shopify_product_id": 1, "listed_at": 1, "title": 1}
+            ))
+            
+            result = {}
+            for sku in skus:
+                product = next((p for p in products if p.get("sku") == sku), None)
+                if product:
+                    result[sku] = {
+                        "exists": True,
+                        "listed": product.get("listed_on_shopify", False),
+                        "shopify_product_id": product.get("shopify_product_id"),
+                        "listed_at": product.get("listed_at"),
+                        "title": product.get("title", "Unknown Product")
+                    }
+                else:
+                    result[sku] = {
+                        "exists": False,
+                        "listed": False,
+                        "message": "Product not found"
+                    }
+            
+            return result
+        except Exception as e:
+            print(f"Error getting multiple listing status: {str(e)}")
+            return {}
 
     def close_connection(self):
         if hasattr(self, 'mongo_client'):

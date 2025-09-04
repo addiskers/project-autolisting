@@ -69,16 +69,32 @@ export const authAPI = {
   }
 };
 
-// Products API
+// Products API - Updated with listing status support
 export const productsAPI = {
   getProducts: async (params = {}) => {
     const response = await api.get('/api/products', { params });
+    // Ensure listing status fields exist
+    if (response.data.products) {
+      response.data.products = response.data.products.map(product => ({
+        ...product,
+        listed_on_shopify: product.listed_on_shopify || false,
+        shopify_product_id: product.shopify_product_id || null,
+        listed_at: product.listed_at || null
+      }));
+    }
     return response.data;
   },
 
   getProduct: async (id) => {
     const response = await api.get(`/api/products/${id}`);
-    return response.data;
+    // Ensure listing status fields exist
+    const product = {
+      ...response.data,
+      listed_on_shopify: response.data.listed_on_shopify || false,
+      shopify_product_id: response.data.shopify_product_id || null,
+      listed_at: response.data.listed_at || null
+    };
+    return product;
   },
 
   getCategories: async (params = {}) => {
@@ -87,10 +103,19 @@ export const productsAPI = {
   }
 };
 
-// Delta/Gap Analysis API
+// Delta/Gap Analysis API - Updated with listing status support
 export const deltaAPI = {
   getDelta: async (vendor) => {
     const response = await api.get(`/api/delta/${vendor}`);
+    // Ensure listing status fields exist for all products
+    if (response.data.data?.products_not_in_shopify) {
+      response.data.data.products_not_in_shopify = response.data.data.products_not_in_shopify.map(product => ({
+        ...product,
+        listed_on_shopify: product.listed_on_shopify || false,
+        shopify_product_id: product.shopify_product_id || null,
+        listed_at: product.listed_at || null
+      }));
+    }
     return response.data;
   },
 
@@ -109,25 +134,47 @@ export const deltaAPI = {
   }
 };
 
-// Shopify Listing API
+// Shopify Listing API - Updated with full listing status support
 export const shopifyAPI = {
   listProduct: async (sku) => {
     const response = await api.post(`/api/list/${sku}`);
     return response.data;
   },
 
-  listMultipleProducts: async (skus) => {
-    const response = await api.post('/api/list/bulk', { skus });
+  listProductWithForce: async (sku, forceRelist = false) => {
+    const headers = {};
+    if (forceRelist) {
+      headers['X-Force-Relist'] = 'true';
+    }
+    const response = await api.post(`/api/list/${sku}`, {}, { headers });
+    return response.data;
+  },
+
+  listMultipleProducts: async (skus, forceRelist = false) => {
+    const response = await api.post('/api/list/bulk', { 
+      skus,
+      force_relist: forceRelist 
+    });
+    return response.data;
+  },
+
+  checkListingStatus: async (sku) => {
+    const response = await api.get(`/api/list/status/${sku}`);
+    return response.data;
+  },
+
+  checkMultipleListingStatus: async (skus) => {
+    const response = await api.post('/api/list/status/bulk', { skus });
     return response.data;
   },
 
   getListingStatus: async (sku) => {
-    const response = await api.get(`/api/list/status/${sku}`);
-    return response.data;
+    // Legacy method - now redirects to checkListingStatus
+    return await shopifyAPI.checkListingStatus(sku);
   }
 };
 
-// Listing History API - CORRECTED VERSION
+// Listing History API
 export const listingAPI = {
   getListingHistory: async (params = {}) => {
     const response = await api.get('/api/list/history', { params });
@@ -366,6 +413,55 @@ export const vendorsAPI = {
   }
 };
 
+// Vendor History API - Updated with listing status support
+export const vendorHistoryAPI = {
+  getVendorHistory: async (vendor, params = {}) => {
+    try {
+      if (!vendor) {
+        throw new Error('Vendor parameter is required');
+      }
+
+      const queryParams = new URLSearchParams();
+      
+      // Add pagination parameters
+      if (params.page) queryParams.append('page', params.page.toString());
+      if (params.limit) queryParams.append('limit', params.limit.toString());
+      
+      // Add filter parameters
+      if (params.status_filter && params.status_filter !== 'ALL') {
+        queryParams.append('status_filter', params.status_filter);
+      }
+      if (params.search && params.search.trim()) {
+        queryParams.append('search', params.search.trim());
+      }
+
+      const url = `/api/vendor-web/${vendor}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+      
+      const response = await api.get(url);
+      
+      if (!response.data.success) {
+        throw new Error(response.data.message || response.data.detail || 'Failed to get vendor history');
+      }
+      
+      // Ensure listing status fields exist for all products
+      if (response.data.data?.products) {
+        response.data.data.products = response.data.data.products.map(product => ({
+          ...product,
+          listed_on_shopify: product.listed_on_shopify || false,
+          shopify_product_id: product.shopify_product_id || null,
+          listed_at: product.listed_at || null
+        }));
+      }
+      
+      return response.data;
+      
+    } catch (error) {
+      console.error('Error in getVendorHistory:', error);
+      throw error;
+    }
+  }
+};
+
 // Error handler utility
 export const handleAPIError = (error) => {
   if (error.response) {
@@ -375,6 +471,23 @@ export const handleAPIError = (error) => {
   } else {
     return error.message || 'An unexpected error occurred';
   }
+};
+
+// Enhanced error handling for listing operations
+export const handleListingError = (error) => {
+  if (error.response?.data?.already_listed) {
+    return {
+      type: 'already_listed',
+      message: error.response.data.message || 'Product is already listed on Shopify',
+      shopify_product_id: error.response.data.shopify_product_id,
+      listed_at: error.response.data.listed_at
+    };
+  }
+  
+  return {
+    type: 'error',
+    message: handleAPIError(error)
+  };
 };
 
 // Utility functions for working with the new MongoDB-based system
@@ -447,43 +560,124 @@ export const fetchUtils = {
     }
   }
 };
-// Vendor History API
-export const vendorHistoryAPI = {
-  getVendorHistory: async (vendor, params = {}) => {
+
+// NEW: Utility functions for listing status
+export const listingUtils = {
+  formatListedDate: (dateString) => {
+    if (!dateString) return '';
     try {
-      if (!vendor) {
-        throw new Error('Vendor parameter is required');
-      }
-
-      const queryParams = new URLSearchParams();
-      
-      // Add pagination parameters
-      if (params.page) queryParams.append('page', params.page.toString());
-      if (params.limit) queryParams.append('limit', params.limit.toString());
-      
-      // Add filter parameters
-      if (params.status_filter && params.status_filter !== 'ALL') {
-        queryParams.append('status_filter', params.status_filter);
-      }
-      if (params.search && params.search.trim()) {
-        queryParams.append('search', params.search.trim());
-      }
-
-      const url = `/api/vendor-web/${vendor}${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-      
-      const response = await api.get(url);
-      
-      if (!response.data.success) {
-        throw new Error(response.data.message || response.data.detail || 'Failed to get vendor history');
-      }
-      
-      return response.data;
-      
-    } catch (error) {
-      console.error('Error in getVendorHistory:', error);
-      throw error;
+      const date = new Date(dateString);
+      return date.toLocaleDateString('en-AU', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return 'Invalid Date';
     }
   },
 
+  getListingBadge: (product) => {
+    if (product.listed_on_shopify) {
+      return {
+        text: 'Listed',
+        color: '#065f46',
+        background: '#d1fae5',
+        border: '#10b981'
+      };
+    }
+    return null;
+  },
+
+  checkBulkListingStatus: async (products) => {
+    const skus = products.map(p => p.sku).filter(Boolean);
+    if (skus.length === 0) return {};
+    
+    try {
+      const response = await shopifyAPI.checkMultipleListingStatus(skus);
+      return response.data || {};
+    } catch (error) {
+      console.error('Error checking bulk listing status:', error);
+      return {};
+    }
+  },
+
+  countListedProducts: (products) => {
+    return products.filter(p => p.listed_on_shopify).length;
+  },
+
+  getListedProducts: (products) => {
+    return products.filter(p => p.listed_on_shopify);
+  },
+
+  getUnlistedProducts: (products) => {
+    return products.filter(p => !p.listed_on_shopify);
+  },
+
+  shouldShowConfirmation: (product) => {
+    return product.listed_on_shopify === true;
+  },
+
+  createConfirmationMessage: (product) => {
+    const title = product.title || 'This product';
+    const listedDate = product.listed_at ? ` It was listed on ${listingUtils.formatListedDate(product.listed_at)}.` : '';
+    
+    return `${title} is already listed on Shopify.${listedDate} Do you want to create a new listing anyway? This will create a duplicate product.`;
+  }
 };
+
+// NEW: Confirmation dialog utility
+export const createListingConfirmation = (product, onConfirm, onCancel) => {
+  const message = listingUtils.createConfirmationMessage(product);
+  
+  if (window.confirm(`${message}\n\nClick OK to create a new listing, or Cancel to abort.`)) {
+    onConfirm();
+  } else {
+    onCancel();
+  }
+};
+
+export const handleBulkListingWithConfirmation = async (products, onProgress, onComplete) => {
+  const listedProducts = listingUtils.getListedProducts(products);
+  const unlistedProducts = listingUtils.getUnlistedProducts(products);
+  
+  let shouldProceed = true;
+  let forceRelist = false;
+  
+  if (listedProducts.length > 0) {
+    const message = `${listedProducts.length} of ${products.length} products are already listed on Shopify.\n\nDo you want to:\n- Click OK to create new listings for ALL products (including duplicates)\n- Click Cancel to only list the ${unlistedProducts.length} unlisted products`;
+    
+    const userChoice = window.confirm(message);
+    
+    if (userChoice) {
+      forceRelist = true;
+    } else {
+      if (unlistedProducts.length === 0) {
+        alert('All products are already listed. No new listings will be created.');
+        return;
+      }
+      // Proceed with only unlisted products
+      products = unlistedProducts;
+    }
+  }
+  
+  if (shouldProceed) {
+    try {
+      const skus = products.map(p => p.sku).filter(Boolean);
+      const result = await shopifyAPI.listMultipleProducts(skus, forceRelist);
+      
+      if (onComplete) {
+        onComplete(result);
+      }
+      
+      return result;
+    } catch (error) {
+      console.error('Bulk listing error:', error);
+      throw error;
+    }
+  }
+};
+
 export default api;
