@@ -480,6 +480,7 @@ async def check_multiple_products_listing_status(request_body: BulkListRequest):
             status_code=500,
             detail=f"Error checking multiple listing statuses: {str(e)}"
         )
+
 @router.post("/list/bulk")
 async def sync_multiple_products_to_shopify(request_body: BulkListRequest, request: Request):
     """Sync multiple products to Shopify - ALWAYS regenerates AI content"""
@@ -508,9 +509,6 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
         
         collection = get_collection()
         fetch_status = request.app.state.fetch_status
-        
-        force_relist = getattr(request_body, 'force_relist', False)
-        
         
         existing_products = list(collection.find(
             {"sku": {"$in": unique_skus}},
@@ -568,7 +566,7 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
         failed_syncs = 0
         already_listed = 0
         sku_data = []
-        ai_regeneration_count = 0  
+        ai_regeneration_count = 0
         
         vendor = "unknown"
         if existing_products:
@@ -585,73 +583,62 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
                     "error": None,
                     "shopify_product_id": None,
                     "already_listed": product_info.get("listed_on_shopify", False),
-                    "ai_regenerated": False  
+                    "ai_regenerated": False
                 }
                 
                 try:
-                    print(f"DEBUG: Processing product {i+1}/{len(existing_skus)}: {sku}")
+                    print(f"DEBUG: Processing product {i+1}/{len(existing_skus)}: {sku} (ALWAYS regenerate AI + relist)")
                     
-                    if product_info.get("listed_on_shopify", False) and not force_relist:
-                        
-                        ai_result = await enhanced_service.generate_and_store_ai_content(sku, force_regenerate=True)
-                        if ai_result["success"]:
-                            ai_regeneration_count += 1
-                            sku_record["ai_regenerated"] = True
-                            print(f"DEBUG: AI content regenerated for already listed product {sku}")
-                        
+                    # Check if already listed for tracking purposes only
+                    was_already_listed = product_info.get("listed_on_shopify", False)
+                    if was_already_listed:
                         already_listed += 1
-                        sku_record["already_listed"] = True
-                        sku_record["shopify_product_id"] = product_info.get("shopify_product_id")
+                    
+                    # ALWAYS regenerate AI and relist, regardless of current status
+                    result = await enhanced_service.sync_product_by_sku(
+                        sku, 
+                        force_relist=True,  # Always force relist
+                        force_regenerate_ai=True  # Always regenerate AI
+                    )
+                    
+                    if result["success"]:
+                        successful_syncs += 1
+                        ai_regeneration_count += 1
+                        sku_record["success"] = True
+                        sku_record["ai_regenerated"] = True
+                        sku_record["shopify_product_id"] = result["data"]["shopify_product_id"]
+                        
+                        print(f"DEBUG: Successfully synced {sku} with regenerated AI content (was_listed: {was_already_listed})")
+                        
+                        message = "Product synced successfully with freshly generated AI content"
+                        if was_already_listed:
+                            message += " (re-listed with new AI content)"
                         
                         results.append({
                             "sku": sku,
-                            "success": False, 
-                            "already_listed": True,
-                            "message": "Product is already listed on Shopify (AI content regenerated)",
-                            "shopify_product_id": product_info.get("shopify_product_id"),
-                            "ai_regenerated": sku_record.get("ai_regenerated", False)
+                            "success": True,
+                            "message": message,
+                            "shopify_product_id": result["data"]["shopify_product_id"],
+                            "ai_content": result["data"].get("ai_content", {}),
+                            "ai_regenerated": True,
+                            "was_already_listed": was_already_listed
                         })
                     else:
-                        print(f"DEBUG: Proceeding with listing for {sku} (AI always regenerated)")
-                        result = await enhanced_service.sync_product_by_sku(
-                            sku, 
-                            force_relist=force_relist,
-                            force_regenerate_ai=True  
-                        )
+                        failed_syncs += 1
+                        sku_record["error"] = result.get("error", "Unknown error")
                         
-                        if result["success"]:
-                            successful_syncs += 1
-                            sku_record["success"] = True
-                            sku_record["shopify_product_id"] = result["data"]["shopify_product_id"]
-                            
-                            ai_regeneration_count += 1
-                            sku_record["ai_regenerated"] = True
-                            
-                            print(f"DEBUG: Successfully synced {sku} with regenerated AI content")
-                            
-                            results.append({
-                                "sku": sku,
-                                "success": True,
-                                "message": "Product synced successfully with freshly generated AI content",
-                                "shopify_product_id": result["data"]["shopify_product_id"],
-                                "ai_content": result["data"].get("ai_content", {}),
-                                "ai_regenerated": True 
-                            })
-                        else:
-                            failed_syncs += 1
-                            sku_record["error"] = result.get("error", "Unknown error")
-                            
-                            print(f"DEBUG: Failed to sync {sku}: {result.get('error')}")
-                            
-                            results.append({
-                                "sku": sku,
-                                "success": False,
-                                "error": result.get("error", "Unknown error"),
-                                "message": result.get("message", "Sync failed")
-                            })
+                        print(f"DEBUG: Failed to sync {sku}: {result.get('error')}")
+                        
+                        results.append({
+                            "sku": sku,
+                            "success": False,
+                            "error": result.get("error", "Unknown error"),
+                            "message": result.get("message", "Sync failed"),
+                            "was_already_listed": was_already_listed
+                        })
                     
-                    # Rate limiting
-                    if i < len(existing_skus) - 1: 
+                    # Rate limiting between products
+                    if i < len(existing_skus) - 1:
                         time.sleep(2)
                         
                 except Exception as e:
@@ -697,7 +684,7 @@ async def sync_multiple_products_to_shopify(request_body: BulkListRequest, reque
                 "successful": successful_syncs,
                 "failed": failed_syncs,
                 "already_listed": already_listed,
-                "ai_content_regenerated": ai_regeneration_count,  
+                "ai_content_regenerated": ai_regeneration_count,
                 "success_rate": f"{(successful_syncs / len(existing_skus) * 100):.1f}%" if existing_skus else "0%"
             },
             "results": results
@@ -725,10 +712,8 @@ async def sync_product_to_shopify(sku: str, request: Request):
             )
         
         sku = sku.strip()
-        force_relist = request.headers.get('X-Force-Relist', 'false').lower() == 'true'
-        # AI is always regenerated now, so we don't need to check the header
         
-        print(f"DEBUG: Single product sync - SKU: {sku}, force_relist: {force_relist} (AI always regenerated)")
+        print(f"DEBUG: Single product sync - SKU: {sku} (ALWAYS regenerate AI + relist)")
         
         collection = get_collection()
         fetch_status = request.app.state.fetch_status
@@ -776,16 +761,26 @@ async def sync_product_to_shopify(sku: str, request: Request):
         }
         
         try:
+            # Check if already listed for tracking purposes only
+            was_already_listed = product.get("listed_on_shopify", False)
+            
+            # ALWAYS regenerate AI and relist, regardless of current status
+            print(f"DEBUG: Processing {sku} - ALWAYS regenerate AI + relist (was_listed: {was_already_listed})")
+            
             result = await enhanced_service.sync_product_by_sku(
                 sku, 
-                force_relist=force_relist,
-                force_regenerate_ai=True  # Always True now
+                force_relist=True,  # Always force relist
+                force_regenerate_ai=True  # Always regenerate AI
             )
             
             if result["success"]:
                 sku_record["success"] = True
                 sku_record["shopify_product_id"] = result["data"]["shopify_product_id"]
-                sku_record["ai_regenerated"] = True  # AI is always regenerated
+                sku_record["ai_regenerated"] = True
+                
+                message = f"Product '{sku}' successfully synced to Shopify with freshly generated AI content"
+                if was_already_listed:
+                    message += " (re-listed with new AI content)"
                 
                 try:
                     fetch_status.save_listing_operation(
@@ -797,10 +792,11 @@ async def sync_product_to_shopify(sku: str, request: Request):
                         results=[{
                             "sku": sku,
                             "success": True,
-                            "message": "Product synced successfully with freshly generated AI content",
+                            "message": message,
                             "shopify_product_id": result["data"]["shopify_product_id"],
                             "ai_content": result["data"].get("ai_content", {}),
-                            "ai_regenerated": True
+                            "ai_regenerated": True,
+                            "was_already_listed": was_already_listed
                         }]
                     )
                 except Exception as e:
@@ -808,25 +804,11 @@ async def sync_product_to_shopify(sku: str, request: Request):
                 
                 return {
                     "success": True,
-                    "message": f"Product '{sku}' successfully synced to Shopify with freshly generated AI content",
+                    "message": message,
                     "data": result["data"]
                 }
             else:
                 sku_record["error"] = result.get("message", "Unknown error")
-                
-                # Handle already listed case
-                if result.get("already_listed"):
-                    ai_regenerated = result.get("ai_content_regenerated", False)
-                    sku_record["ai_regenerated"] = ai_regenerated
-                    
-                    return {
-                        "success": False,
-                        "already_listed": True,
-                        "message": result.get("message", "Product is already listed") + f" (AI content {'regenerated' if ai_regenerated else 'regeneration failed'})",
-                        "shopify_product_id": result.get("shopify_product_id"),
-                        "listed_at": result.get("listed_at"),
-                        "ai_content_regenerated": ai_regenerated
-                    }
                 
                 try:
                     fetch_status.save_listing_operation(
@@ -839,148 +821,8 @@ async def sync_product_to_shopify(sku: str, request: Request):
                             "sku": sku,
                             "success": False,
                             "error": result.get("error", "Unknown error"),
-                            "message": result.get("message", "Sync failed")
-                        }]
-                    )
-                except Exception as e:
-                    print(f"Warning: Failed to save listing history: {str(e)}")
-                
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Sync failed: {result.get('message', 'Unknown error')}"
-                )
-                
-        finally:
-            enhanced_service.close_connection()
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Unexpected error during sync: {str(e)}"
-        )
-    try:
-        from ..core.database import get_collection
-        
-        if not sku or len(sku.strip()) == 0:
-            raise HTTPException(
-                status_code=400, 
-                detail="SKU parameter is required and cannot be empty"
-            )
-        
-        sku = sku.strip()
-        force_relist = request.headers.get('X-Force-Relist', 'false').lower() == 'true'
-        force_regenerate_ai = request.headers.get('X-Force-Regenerate-AI', 'false').lower() == 'true'
-        
-        collection = get_collection()
-        fetch_status = request.app.state.fetch_status
-        
-        product = collection.find_one({"sku": sku})
-        if not product:
-            raise HTTPException(
-                status_code=404, 
-                detail=f"Product not found in database with SKU: {sku}"
-            )
-        
-        # Validate category
-        category = product.get("category", "").strip()
-        if not category or category.lower() == 'none':
-            raise HTTPException(
-                status_code=400,
-                detail=f"Product has invalid category: '{category}'. Category cannot be None or empty."
-            )
-        
-        vendor = product.get("manufacturer", "unknown").lower()
-        product_title = product.get("title", "Unknown Product")
-        
-        try:
-            enhanced_service = ShopifySyncService()
-        except ValueError as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Service configuration error: {str(e)}"
-            )
-        except Exception as e:
-            raise HTTPException(
-                status_code=500,
-                detail=f"Failed to initialize service: {str(e)}"
-            )
-        
-        sku_record = {
-            "sku": sku,
-            "title": product_title,
-            "vendor": product.get("manufacturer", "Unknown"),
-            "success": False,
-            "error": None,
-            "shopify_product_id": None,
-            "already_listed": product.get("listed_on_shopify", False),
-            "ai_generated": False
-        }
-        
-        try:
-            result = await enhanced_service.sync_product_by_sku(
-                sku, 
-                force_relist=force_relist,
-                force_regenerate_ai=force_regenerate_ai
-            )
-            
-            if result["success"]:
-                sku_record["success"] = True
-                sku_record["shopify_product_id"] = result["data"]["shopify_product_id"]
-                
-                # Check if AI content was involved
-                if result["data"].get("ai_content"):
-                    sku_record["ai_generated"] = True
-                
-                try:
-                    fetch_status.save_listing_operation(
-                        operation_type="single",
-                        vendor=vendor,
-                        sku_data=[sku_record],
-                        success_count=1,
-                        failed_count=0,
-                        results=[{
-                            "sku": sku,
-                            "success": True,
-                            "message": "Product synced successfully with AI content",
-                            "shopify_product_id": result["data"]["shopify_product_id"],
-                            "ai_content": result["data"].get("ai_content", {})
-                        }]
-                    )
-                except Exception as e:
-                    print(f"Warning: Failed to save listing history: {str(e)}")
-                
-                return {
-                    "success": True,
-                    "message": f"Product '{sku}' successfully synced to Shopify with AI-generated content",
-                    "data": result["data"]
-                }
-            else:
-                sku_record["error"] = result.get("message", "Unknown error")
-                
-                # Handle already listed case
-                if result.get("already_listed"):
-                    return {
-                        "success": False,
-                        "already_listed": True,
-                        "message": result.get("message", "Product is already listed"),
-                        "shopify_product_id": result.get("shopify_product_id"),
-                        "listed_at": result.get("listed_at")
-                    }
-                
-                try:
-                    fetch_status.save_listing_operation(
-                        operation_type="single",
-                        vendor=vendor,
-                        sku_data=[sku_record],
-                        success_count=0,
-                        failed_count=1,
-                        results=[{
-                            "sku": sku,
-                            "success": False,
-                            "error": result.get("error", "Unknown error"),
-                            "message": result.get("message", "Sync failed")
+                            "message": result.get("message", "Sync failed"),
+                            "was_already_listed": was_already_listed
                         }]
                     )
                 except Exception as e:

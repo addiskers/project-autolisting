@@ -634,10 +634,10 @@ class ShopifySyncService:
                 "message": f"Error checking status: {str(e)}"
             }
 
-    async def sync_product_by_sku(self, sku: str, force_relist: bool = False, force_regenerate_ai: bool = True) -> Dict[str, Any]:
-        """Sync product to Shopify - ALWAYS regenerates AI content"""
+    async def sync_product_by_sku(self, sku: str, force_relist: bool = True, force_regenerate_ai: bool = True) -> Dict[str, Any]:
+        """Sync product to Shopify - ALWAYS regenerates AI content and ALWAYS relists"""
         try:
-            print(f"DEBUG: Starting sync for SKU: {sku}, force_relist: {force_relist} (AI always regenerated)")
+            print(f"DEBUG: Starting sync for SKU: {sku} (ALWAYS regenerate AI + relist)")
             
             mongo_doc = self.collection.find_one({"sku": sku})
             
@@ -648,36 +648,6 @@ class ShopifySyncService:
                     "message": f"No product found with SKU: {sku}"
                 }
 
-            if not force_relist:
-                listing_status = self.check_product_listing_status(sku)
-                if listing_status["listed"]:
-                    print(f"DEBUG: Product {sku} already listed, but still regenerating AI content")
-                    
-                    ai_result = await self.generate_and_store_ai_content(sku, force_regenerate=True)
-                    
-                    if ai_result["success"]:
-                        return {
-                            "success": False,  # Not a new listing
-                            "error": "Product already listed",
-                            "message": f"Product '{listing_status['title']}' is already listed on Shopify (AI content regenerated)",
-                            "already_listed": True,
-                            "shopify_product_id": listing_status["shopify_product_id"],
-                            "listed_at": listing_status["listed_at"],
-                            "ai_content_regenerated": True,
-                            "ai_content": ai_result.get("data", {})
-                        }
-                    else:
-                        return {
-                            "success": False,
-                            "error": "Product already listed",
-                            "message": f"Product '{listing_status['title']}' is already listed on Shopify (AI regeneration failed)",
-                            "already_listed": True,
-                            "shopify_product_id": listing_status["shopify_product_id"],
-                            "listed_at": listing_status["listed_at"],
-                            "ai_content_regenerated": False
-                        }
-
-            # Always generate AI content before listing
             print(f"DEBUG: Always generating AI content for SKU: {sku}")
             ai_result = await self.generate_and_store_ai_content(sku, force_regenerate=True)
             
@@ -696,7 +666,7 @@ class ShopifySyncService:
             product_title = mongo_doc.get("gen_title") or mongo_doc.get("title", "Untitled")
             print(f"DEBUG: Final product title: '{product_title}'")
 
-            # Create Shopify product
+            # Create Shopify product (this will create a NEW product every time)
             product_id = self.create_shopify_product(mongo_doc)
             
             if not product_id:
