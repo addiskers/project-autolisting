@@ -2,14 +2,20 @@ import os
 import json
 import asyncio
 import aiofiles
+import httpx
 from typing import Dict, Any, List, Optional
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pathlib import Path
 from ..core.config import settings
+import time
+import random
 
 class OpenAIContentService:
     def __init__(self):
-        self.client = OpenAI(api_key=settings.OPENAI_API_KEY)
+        self.client = AsyncOpenAI(
+            api_key=settings.OPENAI_API_KEY,
+            max_retries=3   
+        )
         self.prompts_dir = Path(__file__).parent.parent / "prompts"
         
         if not settings.OPENAI_API_KEY:
@@ -18,37 +24,37 @@ class OpenAIContentService:
     def extract_response_text(self, response) -> str:
         """Extract text content from OpenAI response object"""
         try:
-            # Handle standard OpenAI API response structure
             if hasattr(response, 'choices') and response.choices:
                 choice = response.choices[0]
                 if hasattr(choice, 'message') and hasattr(choice.message, 'content'):
-                    print(f"Successfully extracted text from standard API response structure")
                     return choice.message.content
                 elif hasattr(choice, 'text'):
                     return choice.text
             
-            # Debug logging for unhandled structures
-            print(f"WARNING: Unable to extract text from response")
-            print(f"Response type: {type(response)}")
-            
-            # Last resort: convert response to string
             return str(response)
             
         except Exception as e:
             print(f"ERROR: Failed to extract text from response: {str(e)}")
-            print(f"Response type: {type(response)}")
             return str(response)
     
     async def read_prompt_file(self, filename: str) -> str:
-        """Read prompt file content"""
+        """Read prompt file content with caching"""
         try:
+            if not hasattr(self, '_prompt_cache'):
+                self._prompt_cache = {}
+            
+            if filename in self._prompt_cache:
+                return self._prompt_cache[filename]
+            
             file_path = self.prompts_dir / filename
             if not file_path.exists():
                 raise FileNotFoundError(f"Prompt file not found: {filename}")
             
             async with aiofiles.open(file_path, 'r', encoding='utf-8') as file:
                 content = await file.read()
-                return content.strip()
+                self._prompt_cache[filename] = content.strip()
+                return self._prompt_cache[filename]
+                
         except Exception as e:
             print(f"ERROR: Error reading prompt file {filename}: {str(e)}")
             raise
@@ -81,16 +87,13 @@ class OpenAIContentService:
             collections = []
             tags = []
             
-            # Clean the response - remove markdown code blocks if present
             cleaned_response = ai_response.strip()
             
-            # Check if response is wrapped in markdown code blocks
             if cleaned_response.startswith('```json') and cleaned_response.endswith('```'):
                 cleaned_response = cleaned_response[7:-3].strip()
             elif cleaned_response.startswith('```') and cleaned_response.endswith('```'):
                 cleaned_response = cleaned_response[3:-3].strip()
             
-            # Try to parse as JSON first
             try:
                 data = json.loads(cleaned_response)
                 return {
@@ -100,10 +103,8 @@ class OpenAIContentService:
             except json.JSONDecodeError:
                 pass
             
-            # Fallback: Use regex to extract arrays
             import re
             
-            # Find collections array
             collections_match = re.search(r'"?collections"?\s*:\s*\[(.*?)\]', cleaned_response, re.IGNORECASE | re.DOTALL)
             if collections_match:
                 collections_text = collections_match.group(1)
@@ -113,7 +114,6 @@ class OpenAIContentService:
                     if clean_item:
                         collections.append(clean_item)
             
-            # Find tags array
             tags_match = re.search(r'"?tags"?\s*:\s*\[(.*?)\]', cleaned_response, re.IGNORECASE | re.DOTALL)
             if tags_match:
                 tags_text = tags_match.group(1)
@@ -135,8 +135,31 @@ class OpenAIContentService:
                 "tags": []
             }
     
+    async def _make_api_call_with_retry(self, messages: List[Dict], max_retries: int = 3) -> str:
+        """Make API call with exponential backoff retry"""
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.chat.completions.create(
+                    model="gpt-5",  
+                    messages=messages,
+                    response_format={"type": "text"},
+                    reasoning_effort="medium",  
+                )
+                
+                return self.extract_response_text(response)
+                
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                
+                wait_time = (2 ** attempt) + random.uniform(0, 1)
+                print(f"API call failed (attempt {attempt + 1}/{max_retries}), retrying in {wait_time:.2f}s: {str(e)}")
+                await asyncio.sleep(wait_time)
+        
+        raise Exception("Max retries exceeded")
+    
     async def generate_description(self, product_data: Dict[str, Any], category: str) -> str:
-        """Generate product description using the standard OpenAI API format"""
+        """Generate product description using optimized API calls"""
         try:
             if not category or category.lower() == 'none':
                 raise ValueError("Category cannot be None or empty")
@@ -157,39 +180,29 @@ class OpenAIContentService:
             
             full_prompt = f"{system_prompt}\n\nProduct Data: {json.dumps(ai_input, indent=2)}"
 
-            response = self.client.chat.completions.create(
-                model="gpt-5",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": full_prompt
-                            }
-                        ]
-                    }
-                ],
-                response_format={
-                    "type": "text"
-                },
-                reasoning_effort="medium"
-            )
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": full_prompt
+                        }
+                    ]
+                }
+            ]
             
-            # Extract response text using the updated method
-            description = self.extract_response_text(response)
-            print(f"Generated description: {description[:100]}...")
+            description = await self._make_api_call_with_retry(messages)
             return description.strip()
             
         except FileNotFoundError as e:
             raise ValueError(f"Prompt file not found for category '{category}': {str(e)}")
         except Exception as e:
             print(f"ERROR: Error generating description: {str(e)}")
-            print(f"Response object: {type(response) if 'response' in locals() else 'No response'}")
             raise
     
     async def generate_tags_and_collections(self, product_data: Dict[str, Any], category: str) -> Dict[str, Any]:
-        """Generate product tags and collections using the standard OpenAI API format"""
+        """Generate product tags and collections using optimized API calls"""
         try:
             if not category or category.lower() == 'none':
                 raise ValueError("Category cannot be None or empty")
@@ -210,27 +223,19 @@ class OpenAIContentService:
             
             full_prompt = f"{system_prompt}\n\nProduct Data: {json.dumps(ai_input, indent=2)}"
             
-            response = self.client.chat.completions.create(
-                model="gpt-5",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "text",
-                                "text": full_prompt
-                            }
-                        ]
-                    }
-                ],
-                response_format={
-                    "type": "text"
-                    },
-                reasoning_effort="medium"
-            )
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": full_prompt
+                        }
+                    ]
+                }
+            ]
             
-            ai_response = self.extract_response_text(response)
-            print(f"Generated tags/collections response: {ai_response[:100]}...")
+            ai_response = await self._make_api_call_with_retry(messages)
             result = self.parse_collections_and_tags(ai_response.strip())
             return result
             
@@ -241,11 +246,10 @@ class OpenAIContentService:
         except Exception as e:
             error_msg = f"Error generating tags and collections: {str(e)}"
             print(f"ERROR: {error_msg}")
-            print(f"Response object: {type(response) if 'response' in locals() else 'No response'}")
             raise
     
     async def generate_all_content(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate all AI content for a product using standard API format"""
+        """Generate all AI content for a product using optimized concurrent calls"""
         try:
             category = product_data.get("category", "").strip()
             sku = product_data.get("sku", "Unknown")
@@ -262,7 +266,6 @@ class OpenAIContentService:
                 description_task, tags_task
             )
             
-            # Extract title from description
             gen_title = self.extract_title_from_description(gen_description)
             
             result = {
@@ -281,12 +284,11 @@ class OpenAIContentService:
             raise
 
     async def generate_bulk_content(self, products_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """Generate content for multiple products concurrently"""
+        """Generate content for multiple products with optimized concurrency"""
         try:
             print(f"Starting bulk AI content generation for {len(products_data)} products")
             
-            # Create tasks for all products
-            semaphore = asyncio.Semaphore(3)
+            semaphore = asyncio.Semaphore(10)  #
             
             async def limited_generate(product_data):
                 async with semaphore:
@@ -300,25 +302,38 @@ class OpenAIContentService:
                             "sku": sku
                         }
             
-            # Execute with limited concurrency
-            limited_tasks = [limited_generate(product) for product in products_data]
-            results = await asyncio.gather(*limited_tasks, return_exceptions=True)
+            batch_size = 20  
+            all_results = []
             
-            # Process results
-            processed_results = []
-            for i, result in enumerate(results):
-                if isinstance(result, Exception):
-                    sku = products_data[i].get("sku", "unknown")
-                    print(f"ERROR: Exception for SKU {sku}: {result}")
-                    processed_results.append({
-                        "error": str(result),
-                        "sku": sku
-                    })
-                else:
-                    processed_results.append(result)
+            for i in range(0, len(products_data), batch_size):
+                batch = products_data[i:i + batch_size]
+                print(f"Processing batch {i//batch_size + 1}/{(len(products_data)-1)//batch_size + 1} ({len(batch)} products)")
+                
+                batch_tasks = [limited_generate(product) for product in batch]
+                batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
+                
+                # Process batch results
+                for j, result in enumerate(batch_results):
+                    if isinstance(result, Exception):
+                        sku = batch[j].get("sku", "unknown")
+                        print(f"ERROR: Exception for SKU {sku}: {result}")
+                        all_results.append({
+                            "error": str(result),
+                            "sku": sku
+                        })
+                    else:
+                        all_results.append(result)
+                
+                if i + batch_size < len(products_data):
+                    await asyncio.sleep(1)
             
-            return processed_results
+            return all_results
             
         except Exception as e:
             print(f"ERROR: Error generating bulk content: {str(e)}")
             raise
+    
+    async def close(self):
+        """Close the async client"""
+        if hasattr(self.client, 'close'):
+            await self.client.close()
