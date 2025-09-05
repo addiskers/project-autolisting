@@ -1,0 +1,109 @@
+Prompt (for Accessories):
+
+You are given structured product data in JSON format for bathroom and kitchen ACCESSORIES (e.g., Heated/Non-Heated Towel Rails, Robe Hooks, Toilet Accessories, Soap Dish Holders, Shelves, Basin Wastes, Bathtub Wastes, Basket Wastes, Bottle Traps, Channel Grates, Point Drains, Tile Inserts, Hand Dryers).
+
+Your task is to generate well-structured, SEO-friendly HTML content for the product description.
+
+Title Rules
+
+Format: [BRAND] [COLLECTION] [PRODUCT TYPE] [SIZE IF APPLICABLE] [COLOUR]
+
+Chain order: Accessories Brand > Collection > Product Type > Size (if applicable) > Colour
+
+No size for basic accessories (e.g., robe hooks, soap dishes, shelves unless a clear size is central).
+
+Size allowed at the end for:
+
+Floor grates, channel grates, point drains, wastes (consider the length or outlet size if relevant).
+
+Heated and non-heated towel rails (consider the length).
+
+Always uppercase the entire title.
+
+If multiple colours exist, add a line immediately after the title: Also Available in [Colour] (comma-separated list of other colours/finishes).
+
+Output Rules
+
+Use only basic HTML tags without attributes.
+
+Title: one line as defined above, fully uppercase.
+
+Also Available in: only if more than one colour/finish is present.
+
+Product Features: present as a single <ul> list of <li> items. Always include, where available:
+
+Product code (SKU)
+
+Colour
+
+Size (state in mm; choose the clearest dimension format per item type, e.g., Length x Width x Height for grates, or Length for towel rails; include outlet size in mm for wastes if present)
+
+Material (e.g., stainless steel, brass, ABS)
+
+Installation / Mounting (e.g., wall-mounted, tile insert, undermount/overmount not applicable unless explicitly stated)
+
+Type (choose one:  "Heated Towel Rails", "Non-Heated Towel Rails", "Robe Hooks", "Toilet Accessories", "Soap Dish Holders", "Shelves", "Basin Wastes", "Bathtub Wastes", "Basket Wastes", "Bottle Traps", "Channel Grates", "Point Drains", "Tile Inserts", "Hand Dryers",)
+
+Thickness (if applicable, e.g., 1.2 mm)
+
+Outlet / Waste size (e.g., 32 mm, 40 mm, 50 mm), and waste position if specified (e.g., centre, end)
+
+IP rating and wattage for heated towel rails or electrical items (if present)
+
+Bar count and configuration for towel rails (if present)
+
+Flow rate (if present)
+
+Included components (e.g., fixings, basket waste, adapters)
+
+Any additional unique features (e.g., noise-reducing, anti-fingerprint, concealed fixings, quick-dry, removable basket, easy-clean, watermark/WELS notes if applicable)
+
+Certifications/standards (if present)
+
+Country of origin (if present)
+
+Care instructions / cleaning notes (if present)
+
+Deduplicate repeated features; keep natural sentence casing except where an important warning needs emphasis (you may use bold for that warning text only).
+
+Warranty:
+
+Add a Warranty section label in bold, then bullet points.
+
+Add a Domestic Warranty subsection label in bold, then bullet points beneath it if such detail exists.
+
+Include terms/durations only if provided; do not invent.
+
+Marketing Paragraph:
+
+Conclude with a single <p><span>...</span></p> paragraph (max 75 words).
+
+Style: professional and persuasive; highlight design, finish, durability, and warranty reassurance.
+
+Mention the brand name (from data). Use only information available; do not fabricate claims.
+
+Missing Data:
+
+If any key field is missing (size, colour, warranty, etc.), simply omit it—do not guess.
+
+Formatting Requirements
+
+Use only <p>, <ul>, and <li> tags for structure.
+
+Bold only the main title line and section headers (“Warranty”, “Domestic Warranty”). Avoid other styling except bolding critical warnings inside features if needed.
+
+Do not include the raw JSON or any non-HTML text in the output.
+
+Output must be clean HTML only.
+
+Category-Specific Hints (apply only if data exists)
+
+Heated/Non-Heated Towel Rails: show length (mm), bar count, wattage, voltage, IP rating, hardwired/plug-in, and included fixings.
+
+Wastes (Basin/Bathtub/Basket/Bottle Traps): show outlet size (mm), compatibility (e.g., 32/40/50 mm), overflow compatibility, removable basket, seal type.
+
+Grates & Drains (Channel Grates, Point Drains, Tile Inserts): show length/width/height (mm), grate style, outlet position/size, tile insert compatibility, flow rate.
+
+Hand Dryers: show power (W), voltage, airflow, noise level (dB), IP rating, sensor type.
+
+General Accessories (Robe Hooks, Toilet Accessories, Soap Dish Holders, Shelves): show dimensions if central to purchase (length or overall size in mm), mounting type, load rating if provided, included fixings.

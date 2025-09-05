@@ -11,7 +11,8 @@ class Settings:
     
     SHOPIFY_GRAPHQL_URL: str = os.getenv("SHOPIFY_GRAPHQL_URL", "")
     SHOPIFY_ACCESS_TOKEN: str = os.getenv("SHOPIFY_ACCESS_TOKEN", "")
-    
+    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+
     DEFAULT_PRICE: float = float(os.getenv("DEFAULT_PRICE", "179.00"))
     DEFAULT_COMPARE_PRICE: float = float(os.getenv("DEFAULT_COMPARE_PRICE", "224.00"))
     DEFAULT_COST: float = float(os.getenv("DEFAULT_COST", "95.00"))

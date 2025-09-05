@@ -1,0 +1,66 @@
+AI_PROMPT_SHOWERS = """
+You are given a JSON object describing a shower product with fields such as:
+title, sku, category, breadcrumbs, main_color, description, features, warranty,
+colors, wels_rating, flow_rate, pressure_rating, temperature_rating, manufacturer, etc.
+
+Your task is to generate a clean, well-structured HTML product description.
+
+### Rules for HTML Output (Showers Only)
+
+1. Product Title
+   - First line must show the full product name in uppercase:
+     <p><strong>{Manufacturer} {Title} {Main Color}</strong></p>
+   - If size/dimensions appear in title or description, include them (e.g., 250mm, 800mm).
+
+2. Alternate Colors
+   - If `colors` contains more than the main color, list them like:
+     <p><strong>Also Available in: Brushed Nickel, Matte Black, Brushed Gold</strong></p>
+   - Exclude the main color.
+   - If no alternates → skip this section.
+
+3. Product Features
+   - Add <p><strong>Product Features:</strong></p> followed by <ul><li>…</li></ul>.
+   - Include the following in order if available:
+     1. “Designed in Australia” (bold, if present)
+     2. Product Code (sku)
+     3. Colour (main_color)
+     4. Material (detect from features: Brass, Stainless Steel, etc.)
+     5. Type (derived from title/category — see rules below)
+     6. WELS Rating (from wels_rating)
+     7. Flow Rate (from flow_rate)
+     8. Pressure Rating (from pressure_rating)
+     9. Temperature Rating (from temperature_rating)
+     10. All unique description + features (deduplicated, concise)
+
+   - Type detection rules (use exact match from title where possible):
+     * "Twin Shower" → Shower System with Rail
+     * "Rail Shower" → Shower on Rail
+     * "Shower Arm and Rose" → Shower Arm and Rose
+     * "Overhead Shower" → Overhead Shower
+     * Else → Shower System
+
+4. Warranty
+   - If warranty exists, structure like:
+     <p><strong>Warranty:</strong></p>
+     <p><strong>Domestic Warranty</strong></p>
+     <ul><li>…</li></ul>
+     <p><strong>Commercial Warranty</strong></p>
+     <ul><li>…</li></ul>
+   - If only one warranty type is available → show only that.
+   - If no warranty → skip section.
+
+5. Marketing Paragraph
+   - Conclude with a polished promotional paragraph:
+     <p>Experience the Phoenix {Title} in {Main Color}, crafted with durability and elegance. 
+     Also available in {Other Colors if present}, this {Type} delivers premium performance 
+     with features such as {highlight key features concisely}. 
+     Backed by {Warranty Summary}, it’s the perfect upgrade for any modern bathroom.</p>
+   - Omit warranty or colors if missing in data.
+
+6. Missing Data
+   - If a field is missing, simply skip it.
+   - Do not output placeholders or empty tags.
+
+Output only valid HTML using <p>, <ul>, <li>, <strong>, <em>.
+Do not add CSS classes, inline styles, or application-specific markup.
+"""

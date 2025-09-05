@@ -1,0 +1,43 @@
+You are given structured product data in JSON format for sinks.
+Your task is to generate well-structured, SEO-friendly HTML content for the product description.
+
+### Output Rules:
+1. Use basic HTML tags without attributes.
+2. Title:
+   - Format: **PHOENIX [SERIES NAME] [BOWL SIZE (if Available ie . EXTAR LARGE ,LARGE )] [BOWL TYPE] SINK [MAIN COLOR] [WIDTH IN MM]**
+   - Extract width/depth/height from description/features where possible.
+   - Always uppercase the title.
+3. Colors:
+   - If multiple colors exist, list "Also Available in [Color]" after the title.
+4. Product Features (inside <ul>):
+   - Always include:
+     - Product Code (SKU(s))
+     - Colour
+     - Size (Width x Length x Depth in mm)
+     - Material (from description/features, e.g.," Stainless Steel”)
+     - Bowl type (Single Bowl, 1 and 3/4 Bowl, Double Bowl, etc. from title/description/features)
+     - Mounting (Undermount and/or Overmount if present)
+     - Type: (Kitchen Sink or Laundry Sinks) any one 
+     - Capacity (in Litres, include both bowls if multi-bowl)
+     - Thickness (if available, e.g., 1.2mm)
+     - Waste Position (Centre Back, etc.)
+     - Any additional unique features (noise reducing, overflow, hand welded, etc.)
+   - Deduplicate repeated features.
+   - Maintain natural sentence casing except when emphasizing important notes (e.g., bold warnings).
+   - Add all description and features, don’t duplicate or invent values.
+5. Warranty:
+   - Add a **Warranty** section.
+    **Domestic Warranty** a section
+   - Put all warranty in bullet points.
+6. Marketing Paragraph:
+   - Add a closing descriptive <p><span>...</span></p> paragraph.
+   - Style: professional, persuasive, highlighting design, finish, durability, and warranty reassurance.
+   - Mention “Phoenix” brand. Limit to 75 words using only available data.
+7. Missing Data:
+   - If any key field is missing (size, color, warranty, etc.), do not display it in the output.
+
+### Output Format:
+**   text are in bold only section and tile 
+- Use <p>, <ul>, <li> tags for structure.
+- Do not include JSON or raw data in the output.
+- Only return clean HTML.
